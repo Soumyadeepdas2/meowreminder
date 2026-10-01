@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MEOW — you heard me.</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="style.css?v=6" />
+  <link rel="stylesheet" href="style.css?v=7" />
 </head>
 <body>
 
@@ -88,6 +88,7 @@
       <div class="chips">
         <button class="chip" id="chip15" type="button">⏱ IN 15 MIN</button>
         <button class="chip" id="chipCustom" type="button">🕒 CUSTOM TIME</button>
+        <button class="chip" id="chipRepeat" type="button">🔁 EVERY DAY</button>
       </div>
       <div class="custom-row" id="customRow" hidden>
         <label class="kicker" for="customTime">PICK DATE &amp; TIME</label>
@@ -96,7 +97,31 @@
           <button class="btn small" id="clearCustom" type="button">CLEAR</button>
         </div>
       </div>
-      <div class="hint" id="addHint">type a title, then tap “in 15 min” or “custom time” — or just type “call father tomorrow 9am” and I’ll figure it out.</div>
+      <div class="custom-row repeat-row" id="repeatRow" hidden>
+        <label class="kicker">HOW OFTEN?</label>
+        <div class="repeat-days" id="repeatPresets">
+          <button class="chip" type="button" data-rec="daily">EVERY DAY</button>
+          <button class="chip" type="button" data-rec="weekdays">WEEKDAYS (MON–FRI)</button>
+          <button class="chip" type="button" data-rec="weekends">WEEKENDS (SAT–SUN)</button>
+        </div>
+        <label class="kicker">…OR JUST ONE DAY:</label>
+        <div class="repeat-days" id="repeatDows">
+          <button class="chip" type="button" data-day="0">SUN</button>
+          <button class="chip" type="button" data-day="1">MON</button>
+          <button class="chip" type="button" data-day="2">TUE</button>
+          <button class="chip" type="button" data-day="3">WED</button>
+          <button class="chip" type="button" data-day="4">THU</button>
+          <button class="chip" type="button" data-day="5">FRI</button>
+          <button class="chip" type="button" data-day="6">SAT</button>
+        </div>
+        <label class="kicker" for="repeatTime">AT WHAT TIME?</label>
+        <div class="custom-flex">
+          <input id="repeatTime" type="time" value="09:00" />
+          <button class="btn small" id="clearRepeat" type="button">CLEAR</button>
+        </div>
+        <div class="hint">I'll nudge you at that time, on those days, again and again — until you delete it.</div>
+      </div>
+      <div class="hint" id="addHint">type a title, then tap “in 15 min”, “custom time” or “every day” — or just type “call father tomorrow 9am” and I’ll figure it out.</div>
     </section>
 
     <div class="columns">
@@ -114,7 +139,7 @@
           <div class="section-head">
             <h2>LEDGER</h2>
           </div>
-          <div id="activityList" class="activity-list"></div>
+          <div id="ledgerList" class="activity-list"></div>
         </aside>
         <aside class="ledger enrolled">
           <div class="section-head">
@@ -131,8 +156,8 @@
       <ol class="howto-list">
         <li><b>Link this browser:</b> press <b>🐾 GET THE MEOW</b>, then press <b>Start</b> in Telegram. No Start button (you started the bot before)? <b>Type the code shown on screen</b> into the chat and send it.</li>
         <li><b>One-time reminder:</b> just type it — <i>“call father tomorrow 9am”</i>, <i>“buy milk in 2 hours”</i> — or use the <b>IN 15 MIN</b> / <b>CUSTOM TIME</b> chips.</li>
-        <li><b>Every day, same time:</b> start with <b>every day</b> + a time — <i>“every day 9am water plants”</i>, <i>“every weekday 9am standup”</i>, <i>“every saturday 10am gym”</i>. It messages you at that time, every time, until you remove it.</li>
-        <li><b>Done / later / never:</b> every reminder has <b>✓ done</b>, <b>snooze 15m</b> and <b>remove</b>.</li>
+        <li><b>Every day, same time:</b> tap <b>🔁 EVERY DAY</b> and pick how often (every day / weekdays / weekend / one specific day) and at what time — or just type it: <i>“every day 9am water plants”</i>, <i>“every saturday 10am gym”</i>. It messages you at that time, every time, until you remove it.</li>
+        <li><b>Done / later / never:</b> every reminder has <b>✓ done</b>, <b>snooze 15m</b> and <b>remove</b>. Marking a <i>repeat</i> done just sends it back to the schedule for its next occurrence.</li>
         <li><b>Private by default:</b> only your Telegram account can see or change your reminders. Same account on any number of browsers = same list, changes sync in seconds.</li>
       </ol>
     </section>
@@ -148,6 +173,6 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

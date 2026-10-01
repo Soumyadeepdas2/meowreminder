@@ -770,6 +770,13 @@ code {
 /* footer links are gold underlined text (.colophon a) — that rule outranks .btn,
    which would make the button gold-on-gold and invisible until hover. Pin it here. */
 .colophon a.meet-btn { color: var(--on-gold); text-decoration: none; }
+
+/* ---------- repeat panel (🔁 EVERY DAY — recurring reminders) ---------- */
+.repeat-row .repeat-days { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+.repeat-row .hint { margin-top: 10px; }
+/* a selected day/frequency chip stays gold (not just on hover) */
+.chip.active { background: var(--accent); color: var(--on-gold); }
+.chip.active:hover { background: var(--accent); color: var(--on-gold); }
 @media (max-width: 640px) {
   .meet-btn { margin: 10px 0 0; }
 }

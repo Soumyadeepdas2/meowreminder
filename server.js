@@ -137,8 +137,10 @@ app.get('/api/tasks', (req, res) => {
 
 // Create a reminder — always for THIS browser's person (never for someone
 // else). There is deliberately no "send to" here.
-//   { text }           → natural language: "call father tomorrow 9am"
-//   { title, dueAt }   → exact: title kept VERBATIM, fire at this exact time
+//   { text }                    → natural language: "call father tomorrow 9am"
+//   { title, dueAt }            → exact: title kept VERBATIM, fire at this exact time
+//   { title, recurring, time }  → repeat: title VERBATIM, fires again on the
+//                                 schedule (from the 🔁 REPEAT panel)
 app.post('/api/tasks', async (req, res) => {
   if (!req.meowUser) {
     return res.status(401).json({ error: 'Link your meow first — press 🐾 GET THE MEOW and tap Start in Telegram.' });
@@ -157,6 +159,44 @@ app.post('/api/tasks', async (req, res) => {
       time: parsed.time || null,
       ownerChatId: me,
       chatId: me, // delivery target = the owner (kept for the channel layer)
+      createdAt: new Date().toISOString(),
+      done: false
+    };
+    const tasks = store.getTasks();
+    tasks.push(task);
+    await store.saveTasks(tasks);
+    return res.status(201).json(task);
+  }
+
+  // Repeat: "water plants" every day at 9:00, "standup" every weekday at 9:30…
+  // dueAt is computed server-side with the same rule the parser uses, so the
+  // chip path and the "every day 9am …" text path stay in lockstep.
+  if (body.title && body.recurring) {
+    const title = String(body.title).trim();
+    const rec = body.recurring || {};
+    const rt = body.time || {};
+    if (!title) return res.status(400).json({ error: 'Empty reminder.' });
+    const recOk =
+      rec.type === 'daily' || rec.type === 'weekdays' || rec.type === 'weekends' ||
+      (rec.type === 'weekly' && Number.isInteger(rec.day) && rec.day >= 0 && rec.day <= 6);
+    const timeOk =
+      Number.isInteger(rt.h) && Number.isInteger(rt.m) &&
+      rt.h >= 0 && rt.h <= 23 && rt.m >= 0 && rt.m <= 59;
+    if (!recOk) return res.status(400).json({ error: 'That repeat schedule looks off.' });
+    if (!timeOk) return res.status(400).json({ error: 'Pick a time for the repeat.' });
+
+    const recurring = rec.type === 'weekly' ? { type: 'weekly', day: rec.day } : { type: rec.type };
+    const time = { h: rt.h, m: rt.m };
+    const dueAt = parser.nextOccurrence(recurring, time, new Date());
+
+    const task = {
+      id: 't-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      title, // exactly as typed
+      dueAt: dueAt.toISOString(),
+      recurring,
+      time,
+      ownerChatId: me,
+      chatId: me,
       createdAt: new Date().toISOString(),
       done: false
     };
@@ -197,8 +237,17 @@ app.post('/api/tasks', async (req, res) => {
 app.post('/api/tasks/:id/done', async (req, res) => {
   const t = ownedTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  t.done = true;
-  t.completedAt = new Date().toISOString();
+  if (t.recurring && t.time) {
+    // "Done" on a repeat = this round is finished. Roll it to its next
+    // occurrence and keep it active, so it goes back to the schedule
+    // instead of retiring.
+    const next = parser.nextOccurrence(t.recurring, t.time, new Date());
+    t.dueAt = next.toISOString();
+    t.done = false;
+  } else {
+    t.done = true;
+    t.completedAt = new Date().toISOString();
+  }
   await store.saveTasks(store.getTasks());
   res.json(t);
 });
@@ -309,6 +358,51 @@ app.post('/api/config', requireAdmin, async (req, res) => {
   };
   await store.saveConfig(next);
   res.json({ timezone: next.timezone, email: next.email });
+});
+
+// ---- ledger (admin-curated notice board on the public page) ------------
+// Read is public — it's the page's notice board. The write paths live under
+// /api/admin and are session-gated, so only the admin can add, edit or
+// remove ledger entries.
+app.get('/api/ledger', (req, res) => {
+  // Newest first for display.
+  res.json(store.getLedger().slice().reverse());
+});
+
+app.post('/api/admin/ledger', requireAdmin, async (req, res) => {
+  const text = String((req.body || {}).text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Write something for the ledger first.' });
+  if (text.length > 300) return res.status(400).json({ error: 'Keep ledger entries under 300 characters.' });
+  const entry = {
+    id: 'l-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    text,
+    time: new Date().toISOString()
+  };
+  const entries = store.getLedger();
+  entries.push(entry);
+  await store.saveLedger(entries);
+  res.status(201).json(entry);
+});
+
+app.put('/api/admin/ledger/:id', requireAdmin, async (req, res) => {
+  const text = String((req.body || {}).text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Write something for the ledger first.' });
+  if (text.length > 300) return res.status(400).json({ error: 'Keep ledger entries under 300 characters.' });
+  const entries = store.getLedger();
+  const e = entries.find((x) => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: 'Not found' });
+  e.text = text;
+  await store.saveLedger(entries);
+  res.json(e);
+});
+
+app.delete('/api/admin/ledger/:id', requireAdmin, async (req, res) => {
+  const entries = store.getLedger();
+  const i = entries.findIndex((x) => x.id === req.params.id);
+  if (i === -1) return res.status(404).json({ error: 'Not found' });
+  const [removed] = entries.splice(i, 1);
+  await store.saveLedger(entries);
+  res.json(removed);
 });
 
 // ---- enrolled users (the fixed-bot roster) -----------------------------

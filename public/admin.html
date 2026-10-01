@@ -51,6 +51,10 @@
   @media (max-width:520px){ .grid2 { grid-template-columns:1fr; } }
   .card h2 { margin:0 0 14px; font-family:"Arial Black"; font-size:16px; text-transform:uppercase; display:inline-block; background:var(--acc); color:var(--on-gold); padding:5px 12px; border:3px solid var(--ink); box-shadow:4px 4px 0 var(--ink); }
   .muted { color:var(--muted); font-size:13px; line-height:1.5; }
+  .ledger-entry { display:flex; gap:10px; align-items:center; flex-wrap:wrap; border:3px solid var(--ink); box-shadow:4px 4px 0 var(--ink); background:var(--paper); padding:10px 12px; margin-top:10px; }
+  .ledger-entry .lt { flex:1; min-width:200px; font-weight:700; font-size:15px; }
+  .ledger-entry .lt small { display:block; color:var(--muted); font-weight:400; font-size:11px; margin-top:4px; }
+  .ledger-entry .row { margin:0; }
   label { display:block; font-family:"Arial Black"; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:12px 0 5px; }
   input[type="text"], input[type="password"] {
     width:100%; font-family:Helvetica,Arial,sans-serif; font-size:16px; font-weight:700; color:var(--ink);
@@ -171,6 +175,16 @@
       </div>
 
       <div class="card">
+        <h2>📋 Ledger — the public notice board</h2>
+        <p class="muted">This is the <b>LEDGER</b> box on the public page. Whatever you post here is what everyone sees — and only you can add, edit or remove entries.</p>
+        <form id="ledgerForm" class="row" style="margin-top:6px">
+          <input type="text" id="ledgerText" maxlength="300" placeholder="e.g. Festival tomorrow — office closed" style="flex:1;min-width:220px" />
+          <button class="btn" type="submit">POST TO LEDGER</button>
+        </form>
+        <div id="ledgerList" style="margin-top:14px"></div>
+      </div>
+
+      <div class="card">
         <h2>🔑 Change password</h2>
         <form id="pwForm">
           <div class="row">
@@ -288,8 +302,58 @@
     }).catch(function () {});
   }
 
+  // Ledger = the public page's notice board. Only admin can write it.
+  var ledgerItems = [];
+  function renderLedger() {
+    api('/api/ledger').then(function (list) {
+      ledgerItems = list;
+      var el = $('ledgerList');
+      if (!list.length) {
+        el.innerHTML = '<div class="muted">Nothing posted yet — add the first entry above.</div>';
+        return;
+      }
+      el.innerHTML = list.map(function (e) {
+        return '<div class="ledger-entry" data-id="' + e.id + '">' +
+          '<div class="lt">' + esc(e.text) + '<small>' + esc(new Date(e.time).toLocaleString()) + '</small></div>' +
+          '<div class="row">' +
+          '<button class="btn small ghost" data-act="edit" type="button">EDIT</button>' +
+          '<button class="btn small ghost" data-act="del" type="button">DELETE</button>' +
+          '</div></div>';
+      }).join('');
+      el.querySelectorAll('[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var row = btn.closest('.ledger-entry');
+          var id = row.getAttribute('data-id');
+          var item = ledgerItems.find(function (x) { return x.id === id; });
+          if (btn.getAttribute('data-act') === 'del') {
+            api('/api/admin/ledger/' + id, { method: 'DELETE' }).then(function () {
+              toast('Removed from the ledger'); renderLedger();
+            }).catch(function (err) { toast(err.message, true); });
+            return;
+          }
+          if (!item) return;
+          row.innerHTML = '<input type="text" maxlength="300" value="' + esc(item.text) + '" style="flex:1;min-width:200px" />' +
+            '<div class="row">' +
+            '<button class="btn small" data-act="save" type="button">SAVE</button>' +
+            '<button class="btn small ghost" data-act="cancel" type="button">CANCEL</button>' +
+            '</div>';
+          var inp = row.querySelector('input');
+          inp.focus(); inp.select();
+          row.querySelector('[data-act="save"]').addEventListener('click', function () {
+            api('/api/admin/ledger/' + id, { method: 'PUT', body: { text: inp.value } }).then(function () {
+              toast('Ledger updated'); renderLedger();
+            }).catch(function (err) { toast(err.message, true); });
+          });
+          row.querySelector('[data-act="cancel"]').addEventListener('click', function () { renderLedger(); });
+        });
+      });
+    }).catch(function (err) {
+      $('ledgerList').innerHTML = '<div class="muted">' + esc(err.message) + '</div>';
+    });
+  }
+
   function load() {
-    api('/api/admin/state').then(function (s) { render(s); showPanel(); loadEmail(); }).catch(function () { showLogin(); });
+    api('/api/admin/state').then(function (s) { render(s); showPanel(); loadEmail(); renderLedger(); }).catch(function () { showLogin(); });
   }
 
   $('loginForm').addEventListener('submit', function (e) {
@@ -301,6 +365,15 @@
 
   $('logoutBtn').addEventListener('click', function () {
     api('/api/admin/logout', { method: 'POST' }).then(showLogin).catch(showLogin);
+  });
+
+  $('ledgerForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    api('/api/admin/ledger', { method: 'POST', body: { text: $('ledgerText').value } }).then(function () {
+      $('ledgerText').value = '';
+      toast('Posted to the ledger');
+      renderLedger();
+    }).catch(function (err) { toast(err.message, true); });
   });
 
   $('saveMongo').addEventListener('click', function () {

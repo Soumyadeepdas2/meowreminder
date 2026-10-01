@@ -112,7 +112,11 @@ function renderTasks() {
     btn.addEventListener('click', async (e) => {
       const { act, id } = btn.dataset;
       try {
-        if (act === 'done') await api('/api/tasks/' + id + '/done', { method: 'POST' });
+        if (act === 'done') {
+          const t = await api('/api/tasks/' + id + '/done', { method: 'POST' });
+          // A completed repeat comes straight back to the schedule.
+          if (t.recurring) toast('Done — next one: ' + fmtDateTime(t.dueAt));
+        }
         else if (act === 'snooze') await api('/api/tasks/' + id + '/snooze', { method: 'POST', body: { minutes: 15 } });
         else if (act === 'snooze60') await api('/api/tasks/' + id + '/snooze', { method: 'POST', body: { minutes: 60 } });
         else if (act === 'delete') await api('/api/tasks/' + id, { method: 'DELETE' });
@@ -160,20 +164,21 @@ function taskCard(t, isDone) {
     </div>`;
 }
 
-function renderActivity(list) {
-  const el = $('activityList');
+// The ledger is an admin-curated notice board: anyone can read it, only the
+// admin can add/edit/remove entries (see /api/admin/ledger).
+function renderLedger(list) {
+  const el = $('ledgerList');
   if (!list.length) {
-    el.innerHTML = '<div class="empty">Nothing fired yet. Reminders will be recorded here as they go out.</div>';
+    el.innerHTML = '<div class="empty">Nothing posted yet.</div>';
     return;
   }
-  el.innerHTML = list.map((a) => {
-    const fail = a.ok === false;
-    const timeStr = fmtTime(a.time) + ' &middot; ' + fmtDateShort(a.time);
+  el.innerHTML = list.map((e) => {
+    const timeStr = fmtTime(e.time) + ' &middot; ' + fmtDateShort(e.time);
     return `
-      <div class="activity-item ${fail ? 'fail' : ''}">
+      <div class="activity-item">
         <div class="a-time">${timeStr}</div>
-        <div class="a-title">${escapeHtml(a.title)}</div>
-        <div class="a-via">via ${escapeHtml((a.via || []).join(' · '))}</div>
+        <div class="a-title">${escapeHtml(e.text)}</div>
+        <div class="a-via">posted by admin</div>
       </div>`;
   }).join('');
 }
@@ -312,11 +317,11 @@ function hasBot() {
 // ---------- data ----------
 async function refresh() {
   try {
-    const [taskData, activity] = await Promise.all([api('/api/tasks'), api('/api/activity')]);
+    const [taskData, ledger] = await Promise.all([api('/api/tasks'), api('/api/ledger')]);
     tasks = taskData;
     renderTasks();
     renderHero();
-    renderActivity(activity);
+    renderLedger(ledger);
   } catch (e) {
     console.error(e);
   }
@@ -364,6 +369,7 @@ async function addExact(title, dueAt) {
     toast('Noted — I\u2019ll remind you to \u201c' + t.title + '\u201d ' + fmtDateTime(t.dueAt));
     $('addInput').value = '';
     clearCustomTime();
+    clearRepeat();
     await refresh();
   } catch (e) {
     toast(e.message, true);
@@ -375,8 +381,55 @@ function clearCustomTime() {
   $('customRow').hidden = true;
 }
 
+// ---------- 🔁 EVERY DAY — recurring reminders (chip-driven, no typing needed) ----------
+let repMode = 'daily'; // 'daily' | 'weekdays' | 'weekends' | 'weekly'
+let repDay = null;     // 0 (Sun) – 6 (Sat), only when repMode === 'weekly'
+
+function paintRepeatSel() {
+  document.querySelectorAll('#repeatPresets .chip').forEach((b) => {
+    b.classList.toggle('active', repMode === b.dataset.rec);
+  });
+  document.querySelectorAll('#repeatDows .chip').forEach((b) => {
+    b.classList.toggle('active', repMode === 'weekly' && Number(b.dataset.day) === repDay);
+  });
+}
+
+function readRepeat() {
+  if ($('repeatRow').hidden) return null;
+  const [h, m] = ($('repeatTime').value || '09:00').split(':').map(Number);
+  const recurring = repMode === 'weekly' ? { type: 'weekly', day: repDay } : { type: repMode };
+  return { recurring, time: { h: h || 0, m: m || 0 } };
+}
+
+function clearRepeat() {
+  $('repeatRow').hidden = true;
+  $('repeatTime').value = '09:00';
+  repMode = 'daily';
+  repDay = null;
+  paintRepeatSel();
+}
+
+async function addRepeat(title, rep) {
+  try {
+    const t = await api('/api/tasks', { method: 'POST', body: { title, recurring: rep.recurring, time: rep.time } });
+    toast('Noted — I\u2019ll remind you to \u201c' + t.title + '\u201d ' + (recurringLabel(t) || 'again and again') + ' — next: ' + fmtDateTime(t.dueAt));
+    $('addInput').value = '';
+    clearRepeat();
+    await refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 function submitAdd() {
   const text = ($('addInput').value || '').trim();
+  const rep = readRepeat();
+
+  if (rep) {
+    addRepeat(text || 'Reminder', rep);
+    return;
+  }
+
   const custom = $('customTime').value;
 
   if (custom) {
@@ -408,6 +461,18 @@ $('chipCustom').addEventListener('click', () => {
   if (!row.hidden) $('customTime').focus();
 });
 $('clearCustom').addEventListener('click', clearCustomTime);
+$('chipRepeat').addEventListener('click', () => {
+  const row = $('repeatRow');
+  row.hidden = !row.hidden;
+  if (!row.hidden) { paintRepeatSel(); $('repeatTime').focus(); }
+});
+document.querySelectorAll('#repeatPresets .chip').forEach((b) => {
+  b.addEventListener('click', () => { repMode = b.dataset.rec; repDay = null; paintRepeatSel(); });
+});
+document.querySelectorAll('#repeatDows .chip').forEach((b) => {
+  b.addEventListener('click', () => { repMode = 'weekly'; repDay = Number(b.dataset.day); paintRepeatSel(); });
+});
+$('clearRepeat').addEventListener('click', clearRepeat);
 
 // 🐾 GET THE MEOW — starts the handoff (or re-links to a different account).
 $('getMeowBtn').addEventListener('click', (e) => {

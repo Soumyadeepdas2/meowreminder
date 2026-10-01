@@ -21,7 +21,7 @@ const crypto = require('crypto');
 
 // ---------- local files (fallback + migration source) ----------
 const PROJECT_DATA_DIR = path.join(__dirname, 'data');
-const DATA_FILES = ['tasks.json', 'config.json', 'activity.json', 'users.json'];
+const DATA_FILES = ['tasks.json', 'config.json', 'activity.json', 'users.json', 'ledger.json'];
 
 function resolveDataDir() {
   const candidates = [];
@@ -62,6 +62,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const HANDOFFS_FILE = path.join(DATA_DIR, 'handoffs.json');
+const LEDGER_FILE = path.join(DATA_DIR, 'ledger.json');
 
 const DEFAULT_CONFIG = {
   timezone: 'Asia/Kolkata',
@@ -164,6 +165,7 @@ let tasks = [];
 let users = [];
 let activity = [];
 let handoffs = [];
+let ledger = [];
 let config = mergeConfig(readJson(CONFIG_FILE, DEFAULT_CONFIG));
 
 // ---------- backend state ----------
@@ -194,24 +196,26 @@ async function connectMongo(uri) {
 }
 
 async function loadFromMongo() {
-  const [t, u, a, h, c] = await Promise.all([
+  const [t, u, a, h, c, l] = await Promise.all([
     mongoDb.collection('tasks').find({}).toArray(),
     mongoDb.collection('users').find({}).toArray(),
     mongoDb.collection('activity').find({}).toArray(),
     mongoDb.collection('handoffs').find({}).toArray(),
-    mongoDb.collection('config').findOne({ _id: 'main' })
+    mongoDb.collection('config').findOne({ _id: 'main' }),
+    mongoDb.collection('ledger').find({}).toArray()
   ]);
   tasks = t.map(fromDoc);
   users = u.map(fromDoc);
   activity = a.map(fromDoc).slice(-200);
   handoffs = h.map(fromDoc).filter((x) => x.expiresAt > Date.now());
+  ledger = l.map(fromDoc);
   if (c) config = mergeConfig(c);
 }
 
 // One-way: fill empty Mongo collections from local files. Never overwrites.
 async function migrateLocalIntoMongo() {
   const results = {};
-  const pairs = [['users', USERS_FILE], ['tasks', TASKS_FILE], ['activity', ACTIVITY_FILE], ['handoffs', HANDOFFS_FILE]];
+  const pairs = [['users', USERS_FILE], ['tasks', TASKS_FILE], ['activity', ACTIVITY_FILE], ['handoffs', HANDOFFS_FILE], ['ledger', LEDGER_FILE]];
   for (const [colName, file] of pairs) {
     const count = await mongoDb.collection(colName).countDocuments();
     const local = readJson(file, []);
@@ -259,6 +263,15 @@ async function persistActivity() {
     return;
   }
   writeJson(ACTIVITY_FILE, activity);
+}
+async function persistLedger() {
+  if (mongoReady()) {
+    const col = mongoDb.collection('ledger');
+    await col.deleteMany({});
+    if (ledger.length) await col.insertMany(ledger.map(toDoc), { ordered: false });
+    return;
+  }
+  writeJson(LEDGER_FILE, ledger);
 }
 async function persistConfig() {
   const local = readJson(CONFIG_FILE, {});
@@ -309,6 +322,12 @@ async function addActivity(entry) {
   if (activity.length > 200) activity.splice(0, activity.length - 200);
   await persistActivity();
 }
+
+// ---------- ledger (admin-curated notice board on the public page) ----------
+// Only the admin write paths in server.js ever call saveLedger; the public
+// page just reads via getLedger.
+function getLedger() { return ledger; }
+async function saveLedger(list) { ledger = list; await persistLedger(); }
 
 // ---------- per-browser identity ---------------------------------------
 // A browser that completes the Telegram "GET THE MEOW" handoff receives a
@@ -458,6 +477,7 @@ async function initStore() {
   users = readJson(USERS_FILE, []);
   activity = readJson(ACTIVITY_FILE, []);
   handoffs = readJson(HANDOFFS_FILE, []).filter((h) => h.expiresAt > Date.now());
+  ledger = readJson(LEDGER_FILE, []);
   await migrateTaskOwnership();
   if (!uri) console.log('[meow] using local files for data (no database configured yet).');
 }
@@ -509,6 +529,8 @@ module.exports = {
   saveConfig,
   getActivity,
   addActivity,
+  getLedger,
+  saveLedger,
   hashPassword,
   findUserByChatId,
   signUserToken,
