@@ -1,10 +1,13 @@
 // app.js — frontend logic for the dashboard.
-// NOTE: all settings (email, bot link, test messages, user management) now
-// live on the password-protected ADMIN page. This file only powers the public
-// dashboard: reminders + the 🐾 GET THE MEOW enroll button + enrolled panel.
+//
+// Identity model: every browser has its OWN "me". Pressing 🐾 GET THE MEOW
+// starts a one-time Telegram handoff (code in the browser + deep link to the
+// bot); once the person taps Start, THIS browser is linked to their Telegram
+// and only their own reminders are visible/creatable. There is no public
+// roster and no "send to someone else" — those live in 🔐 ADMIN only.
 let TZ = 'Asia/Kolkata';
 let tasks = [];
-let users = [];
+let me = null;         // this browser's linked person (or null)
 let telegramInfo = {};
 
 const $ = (id) => document.getElementById(id);
@@ -82,13 +85,7 @@ function recurringLabel(t) {
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function displayName(u) {
-  if (u.username) return '@' + u.username;
-  if (u.firstName) return u.firstName;
-  return 'chat ' + u.chatId;
+  return String(s).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ---------- rendering ----------
@@ -133,13 +130,6 @@ function taskCard(t, isDone) {
   const timeStr = isDone ? 'done' : fmtTime(t.dueAt);
   const dayStr = !isDone && !isToday(t.dueAt) ? fmtDayShort(t.dueAt) : '';
 
-  const recipient = users.find((u) => String(u.chatId) === String(t.chatId));
-  let toLabel = '';
-  if (users.length > 1 && !isDone) {
-    if (recipient) toLabel = '→ ' + displayName(recipient);
-    else if (!t.chatId) toLabel = '→ me';
-  }
-
   const meta = isDone
     ? `<span class="t-rel">completed ${t.completedAt ? relative(t.completedAt) : ''}</span>`
     : `<span class="t-rel">${fmtDateTime(t.dueAt)} &middot; ${relative(t.dueAt)}</span>`;
@@ -155,7 +145,6 @@ function taskCard(t, isDone) {
         <div class="task-meta">
           ${rec ? `<span class="badge rec">${escapeHtml(rec)}</span>` : ''}
           ${soon ? `<span class="badge stamp">due soon</span>` : ''}
-          ${toLabel ? `<span class="t-to">${escapeHtml(toLabel)}</span>` : ''}
           ${meta}
         </div>
       </div>
@@ -190,11 +179,20 @@ function renderActivity(list) {
 }
 
 function renderHero() {
-  const next = tasks.find((t) => !t.done);
   const label = $('heroLabel');
   const title = $('heroTitle');
   const when = $('heroWhen');
 
+  if (!me) {
+    // Anonymous: landing state, no personal data.
+    label.textContent = 'GET YOUR MEOW';
+    title.textContent = 'One browser. One meow.';
+    when.textContent = 'Press the paw, tap Start in Telegram, and this browser becomes yours — your reminders, your agenda. Nobody else can see them.';
+    setCountdown(0);
+    return;
+  }
+
+  const next = tasks.find((t) => !t.done);
   if (!next) {
     title.textContent = 'Nothing scheduled yet';
     label.textContent = 'NEXT REMINDER';
@@ -210,7 +208,7 @@ function renderHero() {
 
 function setCountdown(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
-  $('cdD').textContent = total >= 86400 ? Math.floor(total / 86400) : '0';
+  $('cdD').textContent = total >= 86400 ? String(Math.floor(total / 86400)) : '0';
   $('cdH').textContent = String(Math.floor((total % 86400) / 3600)).padStart(2, '0');
   $('cdM').textContent = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
   $('cdS').textContent = String(total % 60).padStart(2, '0');
@@ -224,46 +222,91 @@ function renderDates() {
   $('tzLabel').textContent = TZ;
 }
 
-// ---------- enrolled users UI (public read-only panel) ----------
-function renderUsers() {
-  const owner = telegramInfo.ownerChatId;
-
-  // sidebar list
+// "THIS BROWSER" panel: only ever shows the linked person of THIS browser.
+function renderIdentityPanel() {
   const el = $('enrolledList');
-  if (!users.length) {
-    el.innerHTML = '<div class="muted">no one enrolled yet</div>';
+  if (me) {
+    el.innerHTML =
+      `<div class="user-row"><span class="u-name">${escapeHtml(me.name)}</span><span class="tag on">linked</span></div>` +
+      '<div class="muted small">your reminders are private to this browser.</div>';
   } else {
-    el.innerHTML = users.map((u) => {
-      const isOwner = String(u.chatId) === String(owner);
-      return `<div class="user-row"><span class="u-name">${escapeHtml(displayName(u))}</span>${isOwner ? '<span class="tag on">you</span>' : ''}</div>`;
-    }).join('');
-  }
-
-  // send-to selector
-  const sel = $('sendTo');
-  if (users.length > 1) {
-    sel.innerHTML = users.map((u) => {
-      const isOwner = String(u.chatId) === String(owner);
-      return `<option value="${escapeHtml(String(u.chatId))}" ${isOwner ? 'selected' : ''}>${escapeHtml(displayName(u))}${isOwner ? ' (me)' : ''}</option>`;
-    }).join('');
-    $('sendtoRow').hidden = false;
-  } else {
-    $('sendtoRow').hidden = true;
+    el.innerHTML = '<div class="muted">no browser linked here yet.</div>';
   }
 }
 
-// 🐾 GET THE MEOW — public enroll button
+function renderMeChip() {
+  const chip = $('meChip');
+  if (me) {
+    $('meName').textContent = me.name;
+    chip.hidden = false;
+  } else {
+    chip.hidden = true;
+  }
+}
+
+// Show/hide the personal sections based on identity.
+function renderMode() {
+  const personal = !!me;
+  $('addSection').hidden = !personal;
+  document.querySelector('.columns').hidden = !personal;
+  $('meChip').hidden = !personal;
+  $('getMeowBtn').classList.toggle('pulse', !personal);
+}
+
+// ---------- enrollment handoff ----------
+let enrollPoll = null;
+
+function startEnroll() {
+  // Ask the server for a one-time code (stored as a cookie on THIS browser),
+  // then show the code and open the bot's deep link.
+  api('/api/enroll', { method: 'POST' }).then((r) => {
+    $('enrollCode').textContent = r.code;
+    $('enrollOpen').href = r.botLink;
+    $('enrollStatus').textContent = 'Waiting for Telegram…';
+    $('enrollBox').hidden = false;
+    window.open(r.botLink, '_blank', 'noopener');
+
+    clearInterval(enrollPoll);
+    let tries = 0;
+    enrollPoll = setInterval(async () => {
+      tries++;
+      if (tries === 5) { // ~12 s without a match → point at the manual path
+        $('enrollStatus').textContent = 'Still waiting — if Telegram shows no Start button, type the code above into the chat and press send.';
+      }
+      if (tries > 120) { // ~5 minutes
+        clearInterval(enrollPoll);
+        $('enrollStatus').textContent = 'Still waiting — open Telegram, press Start (or send the code), then come back here.';
+        return;
+      }
+      try {
+        const s = await api('/api/enroll/status');
+        if (s.state === 'linked') {
+          clearInterval(enrollPoll);
+          toast('Linked — welcome, ' + (s.you ? s.you.name : 'friend') + '. This browser is yours now.');
+          setTimeout(() => location.reload(), 900);
+        } else if (s.state === 'expired') {
+          clearInterval(enrollPoll);
+          $('enrollBox').hidden = true;
+          toast('That code expired — press 🐾 GET THE MEOW again.', true);
+        }
+      } catch (e) { /* transient */ }
+    }, 2500);
+  }).catch((e) => {
+    toast(e.message, true);
+  });
+}
+
+// 🐾 GET THE MEOW — if no bot is set up yet, explain instead of opening a dead link
 function renderBotLink() {
   const bots = telegramInfo.bots || [];
   const def = bots.find((b) => b.id === telegramInfo.defaultBotId) || bots[0];
-  const meow = $('getMeowBtn');
-  meow.href = (def && def.link) ? def.link : '#';
+  $('getMeowBtn').href = (def && def.link) ? def.link : '#';
 }
 
-function defaultBotLink() {
+function hasBot() {
   const bots = telegramInfo.bots || [];
   const def = bots.find((b) => b.id === telegramInfo.defaultBotId) || bots[0];
-  return def ? def.link : null;
+  return !!(def && def.link);
 }
 
 // ---------- data ----------
@@ -284,27 +327,24 @@ async function bootstrapStatus() {
     const s = await api('/api/status');
     TZ = s.timezone;
     telegramInfo = s.telegram || {};
-    users = s.users || [];
+    me = s.you || null;
     renderDates();
-    renderUsers();
+    renderMode();
+    renderMeChip();
+    renderIdentityPanel();
+    renderHero();
     renderBotLink();
   } catch (e) {
     console.error(e);
   }
 }
 
-// ---------- add form ----------
-function selectedRecipient() {
-  if ($('sendtoRow').hidden) return null;
-  const v = $('sendTo').value;
-  return v || null;
-}
-
-async function addTask(text, to) {
+// ---------- add form (always for "me") ----------
+async function addTask(text) {
   text = (text || '').trim();
   if (!text) return;
   try {
-    const t = await api('/api/tasks', { method: 'POST', body: { text, to } });
+    const t = await api('/api/tasks', { method: 'POST', body: { text } });
     toast('Noted — I\u2019ll remind you to \u201c' + t.title + '\u201d ' + (t.recurring ? recurringLabel(t) : fmtDateTime(t.dueAt)));
     $('addInput').value = '';
     clearCustomTime();
@@ -318,9 +358,9 @@ async function addTask(text, to) {
   }
 }
 
-async function addExact(title, dueAt, to) {
+async function addExact(title, dueAt) {
   try {
-    const t = await api('/api/tasks', { method: 'POST', body: { title, dueAt, to } });
+    const t = await api('/api/tasks', { method: 'POST', body: { title, dueAt } });
     toast('Noted — I\u2019ll remind you to \u201c' + t.title + '\u201d ' + fmtDateTime(t.dueAt));
     $('addInput').value = '';
     clearCustomTime();
@@ -338,18 +378,17 @@ function clearCustomTime() {
 function submitAdd() {
   const text = ($('addInput').value || '').trim();
   const custom = $('customTime').value;
-  const to = selectedRecipient();
 
   if (custom) {
     const title = text || 'Reminder';
     const dueAt = new Date(custom).toISOString();
     if (isNaN(new Date(dueAt).getTime())) { toast('That time looks off — pick it again.', true); return; }
-    addExact(title, dueAt, to);
+    addExact(title, dueAt);
     return;
   }
 
   if (text) {
-    addTask(text, to);
+    addTask(text);
     return;
   }
 
@@ -361,7 +400,7 @@ $('addForm').addEventListener('submit', (e) => { e.preventDefault(); submitAdd()
 $('chip15').addEventListener('click', () => {
   const title = ($('addInput').value || '').trim() || 'Quick reminder';
   const dueAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-  addExact(title, dueAt, selectedRecipient());
+  addExact(title, dueAt);
 });
 $('chipCustom').addEventListener('click', () => {
   const row = $('customRow');
@@ -370,12 +409,26 @@ $('chipCustom').addEventListener('click', () => {
 });
 $('clearCustom').addEventListener('click', clearCustomTime);
 
-// 🐾 GET THE MEOW — if no bot is set up yet, explain instead of opening a dead link
+// 🐾 GET THE MEOW — starts the handoff (or re-links to a different account).
 $('getMeowBtn').addEventListener('click', (e) => {
-  const link = defaultBotLink();
-  if (!link) {
-    e.preventDefault();
+  e.preventDefault();
+  if (!hasBot()) {
     toast('No bot set up yet — open 🔐 ADMIN and add a bot first.', true);
+    return;
+  }
+  if (me) {
+    if (!confirm('Link this browser to a (different) Telegram account? Your current link will be replaced.')) return;
+  }
+  startEnroll();
+});
+
+// ↺ unlink this browser.
+$('meSwitch').addEventListener('click', async () => {
+  try {
+    await api('/api/logout', { method: 'POST' });
+    location.reload();
+  } catch (e) {
+    toast(e.message, true);
   }
 });
 
@@ -390,6 +443,5 @@ setInterval(() => {
   await bootstrapStatus();
   await refresh();
   setInterval(refresh, 15000);
-  // keep the enrolled list fresh too
-  setInterval(bootstrapStatus, 20000);
+  setInterval(bootstrapStatus, 30000);
 })();

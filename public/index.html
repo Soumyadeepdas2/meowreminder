@@ -22,6 +22,11 @@
         <div class="clock" id="clock">--:--:--</div>
         <div class="dateline" id="mastDate">—</div>
       </div>
+      <div class="me-chip" id="meChip" hidden>
+        <span class="me-chip-lbl">LINKED AS</span>
+        <span class="me-chip-name" id="meName">—</span>
+        <button class="me-chip-btn" id="meSwitch" type="button" title="Unlink this browser (switch account)">↺</button>
+      </div>
       <a class="btn meow-btn" id="getMeowBtn" href="#" target="_blank" rel="noopener">🐾 GET THE MEOW</a>
       <a class="btn" href="/admin" id="adminBtn">🔐 ADMIN</a>
     </div>
@@ -58,8 +63,22 @@
       <div class="hero-when" id="heroWhen"></div>
     </section>
 
+    <!-- ENROLLMENT HANDOFF (shown while a browser is being linked) -->
+    <section class="add enroll" id="enrollBox" hidden>
+      <label class="kicker">ONE-TIME LINK CODE</label>
+      <div class="enroll-code" id="enrollCode">———</div>
+      <div class="enroll-cases">
+        <div class="ec"><span class="ec-ico">🆕</span><span><b>First time here?</b> Press the <b>START</b> button in the Telegram window that just opened — that's all.</span></div>
+        <div class="ec"><span class="ec-ico">↻</span><span><b>Started the bot before?</b> You won't see a Start button. <b>Type the code above</b> into the chat and press send.</span></div>
+      </div>
+      <div class="hint" id="enrollStatus">Waiting for Telegram…</div>
+      <div class="enroll-actions">
+        <a class="btn" id="enrollOpen" href="#" target="_blank" rel="noopener">📲 OPEN TELEGRAM</a>
+      </div>
+    </section>
+
     <!-- ADD -->
-    <section class="add">
+    <section class="add" id="addSection">
       <label class="kicker" for="addInput">NEW REMINDER</label>
       <form id="addForm" class="add-form">
         <input id="addInput" type="text" autocomplete="off"
@@ -76,10 +95,6 @@
           <input id="customTime" type="datetime-local" />
           <button class="btn small" id="clearCustom" type="button">CLEAR</button>
         </div>
-      </div>
-      <div class="sendto-row" id="sendtoRow" hidden>
-        <label class="kicker" for="sendTo">SEND TO</label>
-        <select id="sendTo"></select>
       </div>
       <div class="hint" id="addHint">type a title, then tap “in 15 min” or “custom time” — or just type “call father tomorrow 9am” and I’ll figure it out.</div>
     </section>
@@ -103,12 +118,24 @@
         </aside>
         <aside class="ledger enrolled">
           <div class="section-head">
-            <h2>ENROLLED</h2>
+            <h2>THIS BROWSER</h2>
           </div>
           <div id="enrolledList" class="user-list"></div>
         </aside>
       </div>
     </div>
+
+    <!-- HOW TO USE -->
+    <section class="add howto">
+      <h2 class="kicker">HOW TO USE MEOW</h2>
+      <ol class="howto-list">
+        <li><b>Link this browser:</b> press <b>🐾 GET THE MEOW</b>, then press <b>Start</b> in Telegram. No Start button (you started the bot before)? <b>Type the code shown on screen</b> into the chat and send it.</li>
+        <li><b>One-time reminder:</b> just type it — <i>“call father tomorrow 9am”</i>, <i>“buy milk in 2 hours”</i> — or use the <b>IN 15 MIN</b> / <b>CUSTOM TIME</b> chips.</li>
+        <li><b>Every day, same time:</b> start with <b>every day</b> + a time — <i>“every day 9am water plants”</i>, <i>“every weekday 9am standup”</i>, <i>“every saturday 10am gym”</i>. It messages you at that time, every time, until you remove it.</li>
+        <li><b>Done / later / never:</b> every reminder has <b>✓ done</b>, <b>snooze 15m</b> and <b>remove</b>.</li>
+        <li><b>Private by default:</b> only your Telegram account can see or change your reminders. Same account on any number of browsers = same list, changes sync in seconds.</li>
+      </ol>
+    </section>
   </main>
 
   <footer class="colophon">
@@ -116,10 +143,11 @@
     <span id="tzLabel">Asia/Kolkata</span><span class="dot">·</span>
     <span>fires every 15s</span><span class="dot">·</span>
     <span>channels: Telegram · Email · <a href="/admin">admin</a></span>
+    <a class="btn small meet-btn" href="http://soumyadeep.space" target="_blank" rel="noopener">🐾 MEET SOUMYADEEP</a>
   </footer>
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

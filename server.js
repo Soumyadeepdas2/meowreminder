@@ -1,4 +1,9 @@
+// server.js — the web server + API.
+// Run with:  npm start   (then open http://localhost:3000)
 
+// Fix the timezone BEFORE anything creates a Date, so "tomorrow 9am" is
+// interpreted in your local time. Change this (or set the TZ env var) to
+// match where the server actually runs.
 process.env.TZ = process.env.TZ || 'Asia/Kolkata';
 
 const path = require('path');
@@ -32,7 +37,48 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// ---- per-browser identity ----------------------------------------------
+// Each browser that completes the Telegram "GET THE MEOW" handoff gets a
+// signed cookie identifying its person. "Me" is therefore per-browser, and
+// every visitor only ever sees/changes their own reminders.
+const MEOW_COOKIE = 'meow_uid';
+const HANDOFF_COOKIE = 'meow_handoff';
+const IDENTITY_MAX_AGE = 90 * 24 * 60 * 60; // 90 days
+
+function currentIdentity(req) {
+  const tok = getCookie(req, MEOW_COOKIE);
+  if (!tok) return null;
+  const chatId = store.verifyUserToken(tok);
+  if (!chatId) return null;
+  return store.findUserByChatId(chatId) || null;
+}
+
+function publicUser(u) {
+  return {
+    chatId: String(u.chatId),
+    username: u.username || null,
+    firstName: u.firstName || null,
+    name: u.username ? '@' + u.username : (u.firstName || 'friend')
+  };
+}
+
+// Only the owner of a task may read or modify it.
+function ownedTask(req, id) {
+  if (!req.meowUser) return null;
+  const t = store.getTasks().find((x) => x.id === id);
+  if (!t) return null;
+  const owner = String(t.ownerChatId || t.chatId || '');
+  if (owner !== String(req.meowUser.chatId)) return null;
+  return t;
+}
+
 app.use(express.json());
+
+// Attach the signed-identity user (if any) to every request.
+app.use((req, res, next) => {
+  req.meowUser = currentIdentity(req);
+  next();
+});
 
 // Never cache — so design/asset updates show up immediately on refresh.
 app.use((req, res, next) => {
@@ -52,7 +98,9 @@ app.get('/admin', (req, res) => {
 // ---- API ---------------------------------------------------------------
 
 // Everything the dashboard needs to bootstrap.
-// (Public — bot TOKENS are never included, only usernames + links.)
+// Private by design: only "you" (this browser's identity) — never other
+// people's names or reminders. Bot tokens are never included, only the
+// public @username needed for the enroll link.
 app.get('/api/status', (req, res) => {
   const cfg = store.getConfig();
   const bots = (cfg.telegram.bots || []).map((b) => ({
@@ -64,31 +112,38 @@ app.get('/api/status', (req, res) => {
     timezone: cfg.timezone,
     now: new Date().toISOString(),
     channels: channels.status(),
+    you: req.meowUser ? publicUser(req.meowUser) : null,
     telegram: {
       bots,
-      defaultBotId: cfg.telegram.defaultBotId || null,
-      ownerChatId: cfg.telegram.chatId || null
-    },
-    users: store.getUsers()
+      defaultBotId: cfg.telegram.defaultBotId || null
+    }
   });
 });
 
-// List tasks, upcoming first then done.
+// List tasks — ONLY this browser's own reminders, upcoming first then done.
 app.get('/api/tasks', (req, res) => {
-  const tasks = store.getTasks();
-  const upcoming = tasks
+  const all = store.getTasks();
+  const mine = req.meowUser
+    ? all.filter((t) => String(t.ownerChatId || t.chatId || '') === String(req.meowUser.chatId))
+    : [];
+  const upcoming = mine
     .filter((t) => !t.done)
     .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt));
-  const done = tasks
+  const done = mine
     .filter((t) => t.done)
     .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
   res.json([...upcoming, ...done]);
 });
 
-// Create a reminder.
+// Create a reminder — always for THIS browser's person (never for someone
+// else). There is deliberately no "send to" here.
 //   { text }           → natural language: "call father tomorrow 9am"
 //   { title, dueAt }   → exact: title kept VERBATIM, fire at this exact time
 app.post('/api/tasks', async (req, res) => {
+  if (!req.meowUser) {
+    return res.status(401).json({ error: 'Link your meow first — press 🐾 GET THE MEOW and tap Start in Telegram.' });
+  }
+  const me = String(req.meowUser.chatId);
   const body = req.body || {};
 
   if (body.text) {
@@ -100,7 +155,8 @@ app.post('/api/tasks', async (req, res) => {
       dueAt: parsed.dueAt ? parsed.dueAt.toISOString() : null,
       recurring: parsed.recurring || null,
       time: parsed.time || null,
-      chatId: body.to ? String(body.to) : null,
+      ownerChatId: me,
+      chatId: me, // delivery target = the owner (kept for the channel layer)
       createdAt: new Date().toISOString(),
       done: false
     };
@@ -123,7 +179,8 @@ app.post('/api/tasks', async (req, res) => {
       dueAt: dueAt.toISOString(),
       recurring: null,
       time: null,
-      chatId: body.to ? String(body.to) : null,
+      ownerChatId: me,
+      chatId: me,
       createdAt: new Date().toISOString(),
       done: false
     };
@@ -136,48 +193,103 @@ app.post('/api/tasks', async (req, res) => {
   res.status(400).json({ error: 'Empty reminder.' });
 });
 
-// Mark done.
+// Mark done — own tasks only.
 app.post('/api/tasks/:id/done', async (req, res) => {
-  const tasks = store.getTasks();
-  const t = tasks.find((x) => x.id === req.params.id);
+  const t = ownedTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   t.done = true;
   t.completedAt = new Date().toISOString();
-  await store.saveTasks(tasks);
+  await store.saveTasks(store.getTasks());
   res.json(t);
 });
 
-// Snooze: push the fire time forward by N minutes.
+// Snooze — own tasks only.
 app.post('/api/tasks/:id/snooze', async (req, res) => {
   const minutes = Number(req.body.minutes) || 15;
-  const tasks = store.getTasks();
-  const t = tasks.find((x) => x.id === req.params.id);
+  const t = ownedTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   const due = new Date(Date.now() + minutes * 60 * 1000);
   t.dueAt = due.toISOString();
   t.done = false; // revive if it had already fired
-  await store.saveTasks(tasks);
+  await store.saveTasks(store.getTasks());
   await store.addActivity({
     time: new Date().toISOString(),
     title: 'Snoozed "' + t.title + '" by ' + minutes + ' min',
     via: ['snooze'],
-    ok: true
+    ok: true,
+    ownerChatId: req.meowUser ? String(req.meowUser.chatId) : null
   });
   res.json(t);
 });
 
-// Delete.
+// Delete — own tasks only.
 app.delete('/api/tasks/:id', async (req, res) => {
-  const tasks = store.getTasks();
-  const next = tasks.filter((x) => x.id !== req.params.id);
-  await store.saveTasks(next);
+  const t = ownedTask(req, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  await store.saveTasks(store.getTasks().filter((x) => x.id !== req.params.id));
   res.json({ ok: true });
 });
 
-// Recent activity feed.
+// Recent activity feed — only this browser's own events.
 app.get('/api/activity', (req, res) => {
-  const list = store.getActivity();
+  const legacyOwner = store.getConfig().telegram.chatId || null;
+  const me = req.meowUser ? String(req.meowUser.chatId) : null;
+  const list = store.getActivity().filter((a) => {
+    const owner = a.ownerChatId || legacyOwner || null; // pre-ownership entries → old owner
+    return me && owner === me;
+  });
   res.json(list.slice(-50).reverse());
+});
+
+// ---- per-browser enrollment ("GET THE MEOW") ----------------------------
+// Visitor clicks the paw → we store a one-time code (cookie on THIS browser)
+// and hand back a Telegram deep link t.me/<bot>?start=<code>. When their
+// /start (or a message containing the code) arrives, the poller matches the
+// code to their chat. This browser then picks up a signed identity cookie —
+// from now on, "me" in this browser is that person. Nobody else's browser is
+// affected, and no roster is ever exposed.
+
+app.post('/api/enroll', async (req, res) => {
+  const cfg = store.getConfig();
+  const bots = cfg.telegram.bots || [];
+  const def = bots.find((b) => b.id === cfg.telegram.defaultBotId) || bots[0];
+  if (!def || !def.username) {
+    return res.status(400).json({ error: 'No bot is set up yet — an admin needs to add one first.' });
+  }
+  const code = store.randomHandoffCode();
+  await store.createHandoff({
+    code,
+    botId: def.id,
+    chatId: null,
+    createdAt: new Date().toISOString(),
+    expiresAt: Date.now() + store.HANDOFF_TTL_MS
+  });
+  res.setHeader('Set-Cookie', HANDOFF_COOKIE + '=' + code + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + Math.floor(store.HANDOFF_TTL_MS / 1000));
+  res.json({ code, botLink: 'https://t.me/' + def.username + '?start=' + code });
+});
+
+// Polled by the browser while waiting; issues the identity cookie on match.
+app.get('/api/enroll/status', async (req, res) => {
+  const code = getCookie(req, HANDOFF_COOKIE);
+  if (!code) return res.json({ state: 'none' });
+  const h = store.findHandoff(code);
+  if (!h) {
+    res.setHeader('Set-Cookie', HANDOFF_COOKIE + '=; Path=/; Max-Age=0');
+    return res.json({ state: 'expired' });
+  }
+  if (!h.chatId) return res.json({ state: 'waiting' });
+  const u = store.findUserByChatId(h.chatId);
+  await store.deleteHandoff(code);
+  res.append('Set-Cookie', MEOW_COOKIE + '=' + store.signUserToken(h.chatId) + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + IDENTITY_MAX_AGE);
+  res.append('Set-Cookie', HANDOFF_COOKIE + '=; Path=/; Max-Age=0');
+  res.json({ state: 'linked', you: u ? publicUser(u) : null });
+});
+
+// Unlink this browser (also "switch account" — enroll again to re-link).
+app.post('/api/logout', (req, res) => {
+  res.setHeader('Set-Cookie', MEOW_COOKIE + '=; Path=/; Max-Age=0');
+  res.setHeader('Set-Cookie', HANDOFF_COOKIE + '=; Path=/; Max-Age=0');
+  res.json({ ok: true });
 });
 
 // Read/save settings. Bots and users are managed in the Admin page;
@@ -235,8 +347,7 @@ app.get('/api/admin/state', requireAdmin, (req, res) => {
   }));
   res.json({
     bots,
-    users: store.getUsers(),
-    ownerChatId: cfg.telegram.chatId || null,
+    users: store.getUsers(), // the roster is admin-visible ONLY
     defaultBotId: cfg.telegram.defaultBotId || null,
     dataDir: store.getDataDir(),
     db: store.getDatabaseInfo()
@@ -288,14 +399,6 @@ app.post('/api/admin/bots/:id/default', requireAdmin, async (req, res) => {
 app.delete('/api/admin/users/:chatId', requireAdmin, async (req, res) => {
   const id = String(req.params.chatId);
   await store.saveUsers(store.getUsers().filter((u) => String(u.chatId) !== id));
-  res.json({ ok: true });
-});
-
-// Mark one enrolled user as "me" (the owner) — admin only.
-app.post('/api/admin/users/:chatId/owner', requireAdmin, async (req, res) => {
-  const cfg = store.getConfig();
-  cfg.telegram.chatId = String(req.params.chatId);
-  await store.saveConfig(cfg);
   res.json({ ok: true });
 });
 

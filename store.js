@@ -1,4 +1,18 @@
-
+// store.js — the ONLY module that touches storage.
+//
+// Data is cached in memory (getters are synchronous). Setters persist to the
+// ACTIVE backend:
+//
+//   1. MongoDB Atlas (cloud)  — when a connection string is configured
+//      (Admin page → Database). Data lives in the cloud, so updating the app
+//      — or even moving to a different machine — never loses enrolled users,
+//      reminders or settings.
+//
+//   2. Local JSON files        — automatic fallback until a database is
+//      configured, or if the database is unreachable.
+//
+// First time you connect a database, any existing local data is migrated into
+// it automatically (one-way, never overwrites data that's already there).
 
 const fs = require('fs');
 const path = require('path');
@@ -47,11 +61,13 @@ const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const HANDOFFS_FILE = path.join(DATA_DIR, 'handoffs.json');
 
 const DEFAULT_CONFIG = {
   timezone: 'Asia/Kolkata',
   admin: { passwordHash: '' },
   telegram: { bots: [], defaultBotId: null, chatId: '' },
+  security: { secret: '' },
   email: {
     host: 'smtp.gmail.com', port: 587, secure: false,
     user: '', pass: '', from: '', to: ''
@@ -77,6 +93,7 @@ function mergeConfig(raw) {
     ...raw,
     admin: { ...DEFAULT_CONFIG.admin, ...(raw.admin || {}) },
     telegram: { ...DEFAULT_CONFIG.telegram, ...(raw.telegram || {}) },
+    security: { ...DEFAULT_CONFIG.security, ...(raw.security || {}) },
     email: { ...DEFAULT_CONFIG.email, ...(raw.email || {}) }
   };
 }
@@ -100,6 +117,7 @@ function ensureLocalFiles() {
   if (!fs.existsSync(CONFIG_FILE)) writeJson(CONFIG_FILE, DEFAULT_CONFIG);
   if (!fs.existsSync(ACTIVITY_FILE)) writeJson(ACTIVITY_FILE, []);
   if (!fs.existsSync(USERS_FILE)) writeJson(USERS_FILE, []);
+  if (!fs.existsSync(HANDOFFS_FILE)) writeJson(HANDOFFS_FILE, []);
 
   // migrate an old single-token config into the new bots[] list
   const raw = readJson(CONFIG_FILE, DEFAULT_CONFIG);
@@ -134,12 +152,18 @@ function ensureLocalFiles() {
     }
     writeJson(CONFIG_FILE, raw);
   }
+  // Signing secret for the per-browser identity cookie (never exposed).
+  if (!raw.security || !raw.security.secret) {
+    raw.security = { secret: crypto.randomBytes(32).toString('hex') };
+    writeJson(CONFIG_FILE, raw);
+  }
 }
 
 // ---------- in-memory state ----------
 let tasks = [];
 let users = [];
 let activity = [];
+let handoffs = [];
 let config = mergeConfig(readJson(CONFIG_FILE, DEFAULT_CONFIG));
 
 // ---------- backend state ----------
@@ -170,22 +194,24 @@ async function connectMongo(uri) {
 }
 
 async function loadFromMongo() {
-  const [t, u, a, c] = await Promise.all([
+  const [t, u, a, h, c] = await Promise.all([
     mongoDb.collection('tasks').find({}).toArray(),
     mongoDb.collection('users').find({}).toArray(),
     mongoDb.collection('activity').find({}).toArray(),
+    mongoDb.collection('handoffs').find({}).toArray(),
     mongoDb.collection('config').findOne({ _id: 'main' })
   ]);
   tasks = t.map(fromDoc);
   users = u.map(fromDoc);
   activity = a.map(fromDoc).slice(-200);
+  handoffs = h.map(fromDoc).filter((x) => x.expiresAt > Date.now());
   if (c) config = mergeConfig(c);
 }
 
 // One-way: fill empty Mongo collections from local files. Never overwrites.
 async function migrateLocalIntoMongo() {
   const results = {};
-  const pairs = [['users', USERS_FILE], ['tasks', TASKS_FILE], ['activity', ACTIVITY_FILE]];
+  const pairs = [['users', USERS_FILE], ['tasks', TASKS_FILE], ['activity', ACTIVITY_FILE], ['handoffs', HANDOFFS_FILE]];
   for (const [colName, file] of pairs) {
     const count = await mongoDb.collection(colName).countDocuments();
     const local = readJson(file, []);
@@ -242,6 +268,7 @@ async function persistConfig() {
       timezone: config.timezone,
       admin: config.admin,
       telegram: config.telegram,
+      security: config.security,
       email: config.email,
       mongoUri: local.mongoUri || ''
     };
@@ -253,8 +280,18 @@ async function persistConfig() {
     timezone: config.timezone,
     admin: config.admin,
     telegram: config.telegram,
+    security: config.security,
     email: config.email
   });
+}
+async function persistHandoffs() {
+  if (mongoReady()) {
+    const col = mongoDb.collection('handoffs');
+    await col.deleteMany({});
+    if (handoffs.length) await col.insertMany(handoffs.map(toDoc), { ordered: false });
+    return;
+  }
+  writeJson(HANDOFFS_FILE, handoffs);
 }
 
 // ---------- public API (same shape as before) ----------
@@ -271,6 +308,100 @@ async function addActivity(entry) {
   activity.push(entry);
   if (activity.length > 200) activity.splice(0, activity.length - 200);
   await persistActivity();
+}
+
+// ---------- per-browser identity ---------------------------------------
+// A browser that completes the Telegram "GET THE MEOW" handoff receives a
+// signed cookie (chatId + HMAC). The secret lives in config (never exposed),
+// so the cookie cannot be forged to impersonate another person.
+
+function findUserByChatId(chatId) {
+  return users.find((u) => String(u.chatId) === String(chatId)) || null;
+}
+
+function securitySecret() {
+  if (!config.security || !config.security.secret) {
+    config.security = { secret: crypto.randomBytes(32).toString('hex') };
+    persistConfig().catch(() => {});
+  }
+  return config.security.secret;
+}
+
+function signUserToken(chatId) {
+  const c = String(chatId);
+  const sig = crypto.createHmac('sha256', securitySecret()).update(c).digest('hex').slice(0, 24);
+  return c + '.' + sig;
+}
+
+function verifyUserToken(tok) {
+  if (!tok || typeof tok !== 'string') return null;
+  const i = tok.lastIndexOf('.');
+  if (i <= 0) return null;
+  const chatId = tok.slice(0, i);
+  const sig = tok.slice(i + 1);
+  const expect = crypto.createHmac('sha256', securitySecret()).update(chatId).digest('hex').slice(0, 24);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect)) ? chatId : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---------- enrollment handoffs (browser <-> Telegram one-time codes) ----
+const HANDOFF_TTL_MS = 15 * 60 * 1000; // a link code is good for 15 minutes
+
+function randomHandoffCode() {
+  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I, L, O, 0, 1
+  const bytes = crypto.randomBytes(8);
+  let s = '';
+  for (let i = 0; i < 8; i++) s += abc[bytes[i] % abc.length];
+  return s;
+}
+
+function purgeExpiredHandoffs() {
+  const now = Date.now();
+  const next = handoffs.filter((h) => h.expiresAt > now);
+  if (next.length !== handoffs.length) handoffs = next;
+  return handoffs;
+}
+
+async function createHandoff(h) {
+  purgeExpiredHandoffs();
+  handoffs.push(h);
+  await persistHandoffs();
+  return h;
+}
+
+function findHandoff(code) {
+  purgeExpiredHandoffs();
+  return handoffs.find((h) => h.code === code) || null;
+}
+
+async function linkHandoff(code, chatId) {
+  const h = findHandoff(code);
+  if (!h || h.chatId) return h || null;
+  h.chatId = String(chatId);
+  await persistHandoffs();
+  return h;
+}
+
+async function deleteHandoff(code) {
+  handoffs = handoffs.filter((h) => h.code !== code);
+  await persistHandoffs();
+}
+
+// Legacy tasks (created before per-user ownership) belong to whoever they
+// were addressed to — or to the old global "owner" if they were unaddressed.
+async function migrateTaskOwnership() {
+  const legacyOwner = (config.telegram && config.telegram.chatId) || null;
+  let changed = false;
+  for (const t of tasks) {
+    if (!t.ownerChatId) {
+      t.ownerChatId = t.chatId || legacyOwner || null;
+      changed = true;
+    }
+  }
+  if (changed) await persistTasks();
 }
 
 // ---------- database management ----------
@@ -312,6 +443,7 @@ async function initStore() {
       if (Object.keys(migrated).length) {
         console.log('[meow] migrated local data into MongoDB:', JSON.stringify(migrated));
       }
+      await migrateTaskOwnership();
       console.log('[meow] using MongoDB (cloud) for data.');
       return;
     } catch (e) {
@@ -325,6 +457,8 @@ async function initStore() {
   tasks = readJson(TASKS_FILE, []);
   users = readJson(USERS_FILE, []);
   activity = readJson(ACTIVITY_FILE, []);
+  handoffs = readJson(HANDOFFS_FILE, []).filter((h) => h.expiresAt > Date.now());
+  await migrateTaskOwnership();
   if (!uri) console.log('[meow] using local files for data (no database configured yet).');
 }
 
@@ -344,6 +478,7 @@ async function setDatabase(uri) {
     await connectMongo(uri);
     await loadFromMongo();
     const migrated = await migrateLocalIntoMongo();
+    await migrateTaskOwnership();
 
     const local = readJson(CONFIG_FILE, {});
     writeJson(CONFIG_FILE, { ...local, mongoUri: uri });
@@ -374,5 +509,15 @@ module.exports = {
   saveConfig,
   getActivity,
   addActivity,
-  hashPassword
+  hashPassword,
+  findUserByChatId,
+  signUserToken,
+  verifyUserToken,
+  HANDOFF_TTL_MS,
+  randomHandoffCode,
+  createHandoff,
+  findHandoff,
+  linkHandoff,
+  deleteHandoff,
+  purgeExpiredHandoffs
 };

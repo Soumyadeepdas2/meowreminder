@@ -34,7 +34,8 @@ function start() {
             time: now.toISOString(),
             title: t.title,
             via: results.map((r) => (r.ok ? r.channel : r.channel + ' ✗')),
-            ok: results.every((r) => r.ok)
+            ok: results.every((r) => r.ok),
+            ownerChatId: String(t.ownerChatId || t.chatId || '') || null
           });
 
           t.lastSentAt = now.toISOString();

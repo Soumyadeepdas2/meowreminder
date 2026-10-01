@@ -35,6 +35,8 @@ function getMe(token) {
 }
 
 // Register or refresh a user record under a specific bot. Returns { user, isNew }.
+// (There is no global "owner" anymore — identity is per-browser, via the
+// one-time link code. This only keeps the roster up to date.)
 async function upsertUser(chat, botId) {
   const chatId = String(chat.id);
   const users = store.getUsers();
@@ -59,22 +61,81 @@ async function upsertUser(chat, botId) {
     user.lastSeen = new Date().toISOString();
   }
   await store.saveUsers(users);
-
-  // First person to press Start becomes the owner ("me") if none is set yet.
-  if (isNew) {
-    const cfg = store.getConfig();
-    if (!cfg.telegram.chatId) {
-      cfg.telegram.chatId = chatId;
-      await store.saveConfig(cfg);
-    }
-  }
   return { user, isNew };
+}
+
+// A browser that pressed "GET THE MEOW" is waiting on a one-time code. If
+// this message carries that code (as the /start deep-link argument, or typed
+// as plain text), link it to this chat so the waiting browser can pick up its
+// signed identity cookie. Returns true when a handoff was matched.
+async function tryMatchHandoff(bot, msg) {
+  const text = (msg.text || '').trim();
+  if (!text) return false;
+
+  let candidate = null;
+  if (text.startsWith('/start')) {
+    // /start CODE  (or /start@BotName CODE)
+    const arg = text.replace(/^\/start(@\w+)?/, '').trim();
+    if (arg) candidate = arg;
+  } else if (/^[A-Z2-9]{6,12}$/i.test(text)) {
+    candidate = text.toUpperCase();
+  }
+  if (!candidate) return false;
+
+  const h = store.findHandoff(candidate.toUpperCase());
+  if (!h || h.botId !== bot.id || h.chatId) return false;
+
+  await store.linkHandoff(h.code, String(msg.chat.id));
+  try {
+    await apiCall(bot.token, 'sendMessage', {
+      chat_id: msg.chat.id,
+      text: '\u2705 Linked. Go back to the MEOW page in your browser \u2014 it knows you now, and your reminders are private to you. \uD83D\uDC31'
+    });
+  } catch (e) { /* not fatal */ }
+  return true;
 }
 
 function welcomeName(u) {
   if (u.username) return '@' + u.username;
   if (u.firstName) return u.firstName;
   return 'friend';
+}
+
+// Handle one incoming bot message: refresh the roster, match a waiting
+// link code, and greet first-time users.
+async function processMessage(bot, msg) {
+  if (!msg || !msg.chat) return;
+
+  const { user, isNew } = await upsertUser(msg.chat, bot.id);
+  const matched = await tryMatchHandoff(bot, msg);
+
+  if (isNew) {
+    const name = welcomeName(user);
+    try {
+      await apiCall(bot.token, 'sendMessage', {
+        chat_id: msg.chat.id,
+        text: 'You\u2019re enrolled, ' + name + '! \uD83D\uDC31 You\u2019ll get reminders right here, on time. \u2014 meow \u00b7 you heard me.'
+      });
+    } catch (e) {
+      // welcome failed (e.g. user blocked the bot) — not fatal
+    }
+    await store.addActivity({
+      time: new Date().toISOString(),
+      title: 'Enrolled ' + name + (bot.username ? ' via @' + bot.username : ''),
+      via: ['telegram'],
+      ok: true,
+      ownerChatId: String(user.chatId)
+    });
+  }
+  if (matched) {
+    await store.addActivity({
+      time: new Date().toISOString(),
+      title: 'Linked this browser to ' + welcomeName(user),
+      via: ['telegram'],
+      ok: true,
+      ownerChatId: String(user.chatId)
+    });
+  }
 }
 
 async function pollOnce(bot) {
@@ -84,27 +145,7 @@ async function pollOnce(bot) {
 
   for (const upd of data.result) {
     offsets[bot.id] = Math.max(offsets[bot.id] || 0, upd.update_id + 1);
-    const msg = upd.message;
-    if (!msg || !msg.chat) continue;
-
-    const { user, isNew } = await upsertUser(msg.chat, bot.id);
-    if (isNew) {
-      const name = welcomeName(user);
-      try {
-        await apiCall(bot.token, 'sendMessage', {
-          chat_id: msg.chat.id,
-          text: 'You\u2019re enrolled, ' + name + '! \uD83D\uDC31 You\u2019ll get reminders right here, on time. \u2014 meow \u00b7 you heard me.'
-        });
-      } catch (e) {
-        // welcome failed (e.g. user blocked the bot) — not fatal
-      }
-      await store.addActivity({
-        time: new Date().toISOString(),
-        title: 'Enrolled ' + name + (bot.username ? ' via @' + bot.username : ''),
-        via: ['telegram'],
-        ok: true
-      });
-    }
+    await processMessage(bot, upd.message);
   }
 }
 
@@ -133,4 +174,4 @@ function stop() {
   stopped = true;
 }
 
-module.exports = { start, stop, getMe };
+module.exports = { start, stop, getMe, processMessage };

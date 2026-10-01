@@ -697,3 +697,76 @@ code {
 }
 .toast.error { box-shadow: 5px 5px 0 var(--accent2); }
 @keyframes slidein { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---- per-browser identity: masthead chip + enroll handoff ---- */
+.me-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid var(--ink);
+  background: var(--surface);
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.me-chip-lbl {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.me-chip-name { font-weight: 700; color: var(--ink); }
+.me-chip-btn {
+  border: 2px solid var(--ink);
+  background: var(--accent);
+  color: var(--on-gold);
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.me-chip-btn:hover { background: var(--ink); color: var(--accent); }
+
+.enroll-code {
+  font-family: "Courier New", monospace;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  text-align: center;
+  background: var(--shadow);
+  border: 3px dashed var(--accent);
+  padding: 18px 10px;
+  margin: 14px 0;
+  color: var(--accent);
+  user-select: all;
+}
+.enroll-actions { display: flex; gap: 12px; margin-top: 10px; }
+@media (max-width: 640px) {
+  .enroll-code { font-size: 30px; letter-spacing: 0.22em; }
+}
+
+/* ---- enroll: the two cases (Start vs type-the-code) ---- */
+.enroll-cases { display: grid; gap: 10px; margin: 4px 0 12px; }
+.ec {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 2px solid var(--ink);
+  background: var(--surface);
+  padding: 10px 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.ec b { color: var(--ink); }
+.ec-ico { font-size: 18px; line-height: 1.2; }
+
+/* ---- how-to section ---- */
+.howto { margin-top: 8px; }
+.howto-list { margin: 12px 0 0; padding-left: 22px; display: grid; gap: 10px; }
+.howto-list li { font-size: 14px; line-height: 1.6; }
+.howto-list i { color: var(--muted); font-style: italic; }
+
+/* ---- footer: meet the maker ---- */
+.meet-btn { margin-left: 10px; }
+@media (max-width: 640px) {
+  .meet-btn { margin: 10px 0 0; }
+}

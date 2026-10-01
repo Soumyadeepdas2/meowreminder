@@ -1,13 +1,14 @@
 # Dependencies
 node_modules/
 
-# Local data & state (never commit user data or secrets)
+# Local data & state 
 data/
 .meow/
 *.json.bak
 
-# Private project notes
-meow.md
+# Markdown docs other than the README 
+*.md
+!README.md
 
 # Environment & local config
 .env

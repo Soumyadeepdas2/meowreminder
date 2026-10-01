@@ -38,13 +38,18 @@ on-screen activity feed). Add Telegram and/or email to get real notifications.
 - **Plain-English scheduling** — one-time and recurring reminders
   (`tomorrow 9am`, `in 2 hours`, `every weekday 9am`).
 - **Live dashboard** — next-reminder countdown, agenda, activity ledger.
-- **Telegram via a fixed bot** — one bot serves everyone; a person just taps
-  **Start** to enroll. No tokens or chat ids for end users.
-- **Per-person delivery** — address each reminder to a specific enrolled user;
-  it goes to exactly that Telegram chat.
+- **Per-browser identity** — each browser that presses 🐾 GET THE MEOW is
+  linked to its own person via a one-time Telegram code. "Me" is per-browser:
+  everyone sees and edits only their own reminders, and nobody (except the
+  admin) can see who else is enrolled.
+- **Telegram via a fixed bot** — one bot serves everyone; a person taps
+  **Start** (or sends their link code) and their browser is theirs. No tokens
+  or chat ids for end users.
+- **Self-only reminders** — a person can create reminders only for themselves;
+  delivery goes to their own Telegram chat.
 - **Email backup channel** — SMTP (Gmail app password supported).
-- **Admin panel** (password protected) — manage bots, delivery channels,
-  enrolled users, and the admin password.
+- **Admin panel** (password protected) — manage bots, delivery channels, the
+  enrolled-users roster (admin-visible only), and the admin password.
 - **Durable storage** — MongoDB (cloud) or local files, see below.
 
 ---

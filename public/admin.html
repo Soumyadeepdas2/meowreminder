@@ -166,7 +166,7 @@
 
       <div class="card">
         <h2>👥 Enrolled users</h2>
-        <p class="muted">Everyone who pressed Start on one of the bots. Their username is what the web page shows.</p>
+        <p class="muted">Everyone who linked their browser via Telegram. This roster is visible <b>only here</b> — the public page never shows other people's names or reminders.</p>
         <div id="adminUserList"></div>
       </div>
 
@@ -260,14 +260,12 @@
     } else {
       ul.innerHTML = '<table><thead><tr><th>Name</th><th>Chat id</th><th>Joined</th><th></th></tr></thead><tbody>' +
         state.users.map(function (u) {
-          var isOwner = String(u.chatId) === String(state.ownerChatId);
           var bot = (state.bots || []).find(function (b) { return b.id === u.botId; });
           return '<tr>' +
-            '<td><b>' + esc(nameOf(u)) + '</b>' + (isOwner ? ' <span class="tag on">you</span>' : '') + (bot ? ' <span class="muted">via @' + esc(bot.username || 'bot') + '</span>' : '') + '</td>' +
+            '<td><b>' + esc(nameOf(u)) + '</b>' + (bot ? ' <span class="muted">via @' + esc(bot.username || 'bot') + '</span>' : '') + '</td>' +
             '<td class="mono">' + esc(String(u.chatId)) + '</td>' +
             '<td class="mono">' + esc(String(u.joinedAt || '').slice(0, 10)) + '</td>' +
             '<td style="white-space:nowrap">' +
-              (isOwner ? '' : '<button class="btn small ghost" data-act="owner" data-id="' + esc(String(u.chatId)) + '">set as me</button> ') +
               '<button class="btn small ghost" data-act="removeUser" data-id="' + esc(String(u.chatId)) + '">remove</button>' +
             '</td>' +
           '</tr>';
@@ -360,8 +358,6 @@
       api('/api/admin/bots/' + encodeURIComponent(id), { method: 'DELETE' }).then(function(){ toast('Bot removed'); load(); }).catch(function(err){ toast(err.message,true); });
     } else if (act === 'default') {
       api('/api/admin/bots/' + encodeURIComponent(id) + '/default', { method: 'POST' }).then(function(){ load(); }).catch(function(err){ toast(err.message,true); });
-    } else if (act === 'owner') {
-      api('/api/admin/users/' + encodeURIComponent(id) + '/owner', { method: 'POST' }).then(function(){ toast('Set as me'); load(); }).catch(function(err){ toast(err.message,true); });
     } else if (act === 'removeUser') {
       api('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' }).then(function(){ toast('User removed'); load(); }).catch(function(err){ toast(err.message,true); });
     }

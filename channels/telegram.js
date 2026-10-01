@@ -1,6 +1,8 @@
 // telegram.js — sends reminders to the right person via the right bot.
-// A reminder is addressed to a chat id; we look up which bot that person
-// enrolled through and use that bot's token. Falls back to the default bot.
+// A reminder is addressed to its owner's chat id; we look up which bot that
+// person enrolled through and use that bot's token. Falls back to the
+// default bot. (There is no global "owner" fallback — every reminder has an
+// owner, or it simply doesn't get delivered.)
 const store = require('../store');
 
 function cfg() {
@@ -39,8 +41,8 @@ module.exports = {
     const bots = c.bots || [];
     if (!bots.length) throw new Error('No bot yet — add one in the Admin page.');
 
-    const chatId = task.chatId || c.chatId;
-    if (!chatId) throw new Error('No recipient — nobody has enrolled yet.');
+    const chatId = task.chatId || task.ownerChatId;
+    if (!chatId) throw new Error('No recipient — this reminder has no owner.');
 
     const bot = botForChat(chatId);
     if (!bot) throw new Error('No bot available.');
