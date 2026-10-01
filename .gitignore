@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Local data & state (never commit user data or secrets)
+data/
+.meow/
+*.json.bak
+
+# Private project notes
+meow.md
+
+# Environment & local config
+.env
+.env.*
+
+# Logs & OS noise
+*.log
+logs/
+.DS_Store
+Thumbs.db

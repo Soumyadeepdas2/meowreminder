@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MEOW — you heard me.</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="style.css?v=5" />
+</head>
+<body>
+
+  <header class="masthead">
+    <div class="brand">
+      <div class="brand-mark"><img src="logo.png" alt="meow logo" /></div>
+      <div class="brand-text">
+        <h1>MEOW</h1>
+        <p class="slogan">you heard me.</p>
+      </div>
+    </div>
+    <div class="mast-right">
+      <div class="clockbox">
+        <div class="clock" id="clock">--:--:--</div>
+        <div class="dateline" id="mastDate">—</div>
+      </div>
+      <a class="btn meow-btn" id="getMeowBtn" href="#" target="_blank" rel="noopener">🐾 GET THE MEOW</a>
+      <a class="btn" href="/admin" id="adminBtn">🔐 ADMIN</a>
+    </div>
+  </header>
+
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-inner">
+      <span>⚡ you heard me.</span><span>·</span>
+      <span>tomorrow 9am? i got you</span><span>·</span>
+      <span>telegram + email channels</span><span>·</span>
+      <span>every monday 9am — forever</span><span>·</span>
+      <span>meow means done.</span><span>·</span>
+      <span>⚡ you heard me.</span><span>·</span>
+      <span>tomorrow 9am? i got you</span><span>·</span>
+      <span>telegram + email channels</span><span>·</span>
+      <span>every monday 9am — forever</span><span>·</span>
+      <span>meow means done.</span><span>·</span>
+    </div>
+  </div>
+
+  <main>
+    <!-- NEXT REMINDER -->
+    <section class="hero">
+      <div class="kicker" id="todayDate">—</div>
+      <div class="hero-title" id="heroTitle">Nothing scheduled yet</div>
+      <div class="hero-label" id="heroLabel">NEXT REMINDER</div>
+
+      <div class="countdown">
+        <div class="unit"><span class="num" id="cdD">00</span><span class="lbl">days</span></div>
+        <div class="unit"><span class="num" id="cdH">00</span><span class="lbl">hrs</span></div>
+        <div class="unit"><span class="num" id="cdM">00</span><span class="lbl">min</span></div>
+        <div class="unit hot"><span class="num" id="cdS">00</span><span class="lbl">sec</span></div>
+      </div>
+      <div class="hero-when" id="heroWhen"></div>
+    </section>
+
+    <!-- ADD -->
+    <section class="add">
+      <label class="kicker" for="addInput">NEW REMINDER</label>
+      <form id="addForm" class="add-form">
+        <input id="addInput" type="text" autocomplete="off"
+               placeholder='WHAT SHOULD I REMIND YOU? e.g. "call father"' />
+        <button class="btn" type="submit">ADD +</button>
+      </form>
+      <div class="chips">
+        <button class="chip" id="chip15" type="button">⏱ IN 15 MIN</button>
+        <button class="chip" id="chipCustom" type="button">🕒 CUSTOM TIME</button>
+      </div>
+      <div class="custom-row" id="customRow" hidden>
+        <label class="kicker" for="customTime">PICK DATE &amp; TIME</label>
+        <div class="custom-flex">
+          <input id="customTime" type="datetime-local" />
+          <button class="btn small" id="clearCustom" type="button">CLEAR</button>
+        </div>
+      </div>
+      <div class="sendto-row" id="sendtoRow" hidden>
+        <label class="kicker" for="sendTo">SEND TO</label>
+        <select id="sendTo"></select>
+      </div>
+      <div class="hint" id="addHint">type a title, then tap “in 15 min” or “custom time” — or just type “call father tomorrow 9am” and I’ll figure it out.</div>
+    </section>
+
+    <div class="columns">
+      <!-- AGENDA -->
+      <section class="agenda">
+        <div class="section-head">
+          <h2>UPCOMING</h2>
+        </div>
+        <div id="taskList" class="task-list"></div>
+      </section>
+
+      <!-- LEDGER + ENROLLED -->
+      <div class="side-col">
+        <aside class="ledger">
+          <div class="section-head">
+            <h2>LEDGER</h2>
+          </div>
+          <div id="activityList" class="activity-list"></div>
+        </aside>
+        <aside class="ledger enrolled">
+          <div class="section-head">
+            <h2>ENROLLED</h2>
+          </div>
+          <div id="enrolledList" class="user-list"></div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <footer class="colophon">
+    <span>MEOW · you heard me.</span><span class="dot">·</span>
+    <span id="tzLabel">Asia/Kolkata</span><span class="dot">·</span>
+    <span>fires every 15s</span><span class="dot">·</span>
+    <span>channels: Telegram · Email · <a href="/admin">admin</a></span>
+  </footer>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="app.js?v=2"></script>
+</body>
+</html>

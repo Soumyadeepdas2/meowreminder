@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MEOW — Admin</title>
+<style>
+  :root {
+    --ink:#f3edda; --paper:#0b1b3d; --surface:#12264f; --acc:#d4af37;
+    --acc2:#e0563e; --muted:#93a7cf; --on-gold:#101f3f; --shadow:#050e24;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; font-family: Helvetica, Arial, sans-serif; color: var(--ink); background: var(--paper);
+    min-height: 100vh;
+  }
+  body::before {
+    content:""; position: fixed; inset:0; pointer-events:none; z-index: 9999;
+    background-image: radial-gradient(rgba(212,175,55,0.10) 1px, transparent 1.15px); background-size: 7px 7px;
+  }
+  .mast {
+    max-width: 980px; margin: 0 auto; padding: 20px 20px 14px;
+    display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;
+    border-bottom: 4px solid var(--ink);
+  }
+  .brand { display:flex; align-items:center; gap:14px; }
+  .logo { width:56px; height:56px; display:grid; place-items:center; border:4px solid var(--ink); background:var(--shadow); box-shadow:4px 4px 0 var(--acc); }
+  .logo img { width:100%; height:100%; object-fit:cover; display:block; }
+  .brand h1 { margin:0; font-family:"Arial Black","Arial Bold",Helvetica,sans-serif; font-size:28px; text-transform:uppercase; }
+  .brand .sub { margin:2px 0 0; font-family:"Arial Black"; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+  .mast .actions { display:flex; gap:10px; align-items:center; }
+  .btn {
+    font-family:"Arial Black","Arial Bold",Helvetica,sans-serif; font-size:13px; letter-spacing:.05em; text-transform:uppercase;
+    background:var(--acc); color:var(--on-gold); border:3px solid var(--ink); box-shadow:4px 4px 0 var(--ink);
+    padding:11px 16px; cursor:pointer; border-radius:0; transition: transform .08s, box-shadow .08s, background .1s, color .1s;
+  }
+  .btn:hover { background:var(--ink); color:var(--shadow); }
+  .btn:active { transform: translate(4px,4px); box-shadow:none; }
+  .btn.ghost { background:var(--surface); color:var(--ink); box-shadow:4px 4px 0 var(--ink); }
+  .btn.ghost:hover { background:var(--ink); color:var(--shadow); }
+  .btn.small { padding:8px 12px; font-size:11px; box-shadow:3px 3px 0 var(--ink); }
+  .btn.small.ghost { box-shadow:3px 3px 0 var(--ink); }
+
+  main { max-width: 980px; margin: 0 auto; padding: 22px 20px 60px; }
+
+  .card { border:4px solid var(--ink); box-shadow:8px 8px 0 var(--ink); background:var(--paper); padding:20px; margin-bottom:24px; }
+  .card .sub { font-family:"Arial Black"; font-size:13px; text-transform:uppercase; letter-spacing:.08em; margin:20px 0 8px; background:var(--acc); color:var(--on-gold); display:inline-block; padding:4px 10px; border:2px solid var(--ink); box-shadow:3px 3px 0 var(--ink); }
+  .card .sub:first-of-type { margin-top:6px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:4px 14px; }
+  @media (max-width:520px){ .grid2 { grid-template-columns:1fr; } }
+  .card h2 { margin:0 0 14px; font-family:"Arial Black"; font-size:16px; text-transform:uppercase; display:inline-block; background:var(--acc); color:var(--on-gold); padding:5px 12px; border:3px solid var(--ink); box-shadow:4px 4px 0 var(--ink); }
+  .muted { color:var(--muted); font-size:13px; line-height:1.5; }
+  label { display:block; font-family:"Arial Black"; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:12px 0 5px; }
+  input[type="text"], input[type="password"] {
+    width:100%; font-family:Helvetica,Arial,sans-serif; font-size:16px; font-weight:700; color:var(--ink);
+    background:var(--paper); border:3px solid var(--ink); padding:12px 14px; outline:none; border-radius:0;
+  }
+  input:focus { box-shadow:5px 5px 0 var(--acc); }
+  .row { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; }
+  .row input { flex:1; min-width:220px; }
+
+  table { width:100%; border-collapse: collapse; margin-top:10px; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:2px dashed var(--ink); font-size:13px; vertical-align:middle; }
+  th { font-family:"Arial Black"; font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+  td .mono { font-family:"Courier New",monospace; font-size:12px; }
+  .tag { font-family:"Arial Black"; font-size:10px; letter-spacing:.08em; text-transform:uppercase; border:2px solid var(--ink); padding:2px 7px; background:var(--surface); }
+  .tag.on { background:var(--acc); color:var(--on-gold); }
+  .link { font-family:"Courier New",monospace; font-size:12px; font-weight:700; color:var(--on-gold); background:var(--acc); border:2px solid var(--ink); box-shadow:3px 3px 0 var(--ink); padding:3px 8px; text-decoration:none; word-break:break-all; display:inline-block; margin:2px 0; }
+  .empty { color:var(--muted); padding:10px 0; font-family:"Courier New",monospace; text-transform:uppercase; font-size:12px; }
+
+  /* login */
+  .login-wrap { max-width:420px; margin:70px auto 0; }
+  .login-err { color:var(--acc2); font-family:"Arial Black"; font-size:12px; text-transform:uppercase; margin-top:10px; min-height:16px; }
+
+  .toasts { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:10px; z-index:10000; width:min(430px,92vw); }
+  .toast { background:var(--shadow); color:var(--ink); border:3px solid var(--acc); box-shadow:5px 5px 0 var(--ink); padding:12px 16px; font-family:"Arial Black"; font-size:13px; text-transform:uppercase; }
+  .toast.error { box-shadow:5px 5px 0 var(--acc2); }
+</style>
+</head>
+<body>
+
+  <header class="mast">
+    <div class="brand">
+      <div class="logo"><img src="logo.png" alt="meow" /></div>
+      <div>
+        <h1>MEOW <span style="background:var(--acc);color:var(--on-gold);padding:0 6px;border:3px solid var(--ink);">ADMIN</span></h1>
+        <div class="sub">you heard me.</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="btn ghost small" href="/">← back to app</a>
+      <button class="btn small ghost" id="logoutBtn" hidden>logout</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- LOGIN -->
+    <div class="login-wrap" id="loginView" hidden>
+      <div class="card">
+        <h2>Password required</h2>
+        <form id="loginForm">
+          <label for="loginPass">Admin password</label>
+          <div class="row">
+            <input type="password" id="loginPass" autocomplete="current-password" placeholder="••••••" />
+            <button class="btn" type="submit">UNLOCK</button>
+          </div>
+        </form>
+        <div class="login-err" id="loginErr"></div>
+      </div>
+    </div>
+
+    <!-- ADMIN PANEL -->
+    <div id="panel" hidden>
+
+      <div class="card" style="border-color:var(--acc)">
+        <h2>🗄 DATABASE — WHERE YOUR DATA LIVES</h2>
+        <p class="muted">Put your users, reminders and settings in a <b>free online database</b> and they survive every app update — even if you move to a different machine.</p>
+        <div id="dbStatus" class="muted">—</div>
+        <label for="mongoUri">MongoDB connection string</label>
+        <div class="row">
+          <input type="text" id="mongoUri" placeholder="mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/meow" />
+          <button class="btn" id="saveMongo" type="button">CONNECT</button>
+        </div>
+        <p class="muted small">Get one free at <b>MongoDB.com</b>: create a free <b>M0</b> cluster → <b>Database Access</b> (create a user) → <b>Network Access</b> (add <code>0.0.0.0/0</code>) → <b>Connect → Drivers</b> → copy the connection string. Then paste it above and hit CONNECT. Your existing users/reminders move into the database automatically.</p>
+      </div>
+
+      <div class="card">
+        <h2>📱 Bots</h2>
+        <p class="muted">Add your bot(s) here. Paste the token from <b>@BotFather</b> — the app finds the username and builds the link automatically.</p>
+        <form id="addBotForm">
+          <label for="botToken">Add a bot (paste token)</label>
+          <div class="row">
+            <input type="text" id="botToken" placeholder="123456789:AAF...xyz" />
+            <button class="btn" type="submit">ADD BOT</button>
+          </div>
+        </form>
+        <div id="botList" style="margin-top:16px"></div>
+      </div>
+
+      <div class="card">
+        <h2>📡 Delivery channels</h2>
+        <p class="muted">Where reminders are sent. Telegram goes through the bot above; email is the backup channel.</p>
+
+        <h3 class="sub">📱 Telegram</h3>
+        <div id="adminBotLinkRow" class="muted">No bot yet — add one above.</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small ghost" id="testTelegram" type="button">SEND TEST → TELEGRAM</button>
+        </div>
+
+        <h3 class="sub">📧 Email</h3>
+        <p class="muted">Gmail: turn on 2-step verification, create an <b>App Password</b> (not your normal password).</p>
+        <div class="grid2">
+          <div><label for="emHost">SMTP host</label><input type="text" id="emHost" /></div>
+          <div><label for="emPort">Port</label><input type="number" id="emPort" /></div>
+          <div><label for="emFrom">From</label><input type="text" id="emFrom" /></div>
+          <div><label for="emTo">To</label><input type="text" id="emTo" /></div>
+          <div><label for="emUser">User (email)</label><input type="text" id="emUser" /></div>
+          <div><label for="emPass">App password</label><input type="password" id="emPass" autocomplete="current-password" /></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn small" id="saveEmail" type="button">SAVE EMAIL</button>
+          <button class="btn small ghost" id="testEmail" type="button">SEND TEST → EMAIL</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>👥 Enrolled users</h2>
+        <p class="muted">Everyone who pressed Start on one of the bots. Their username is what the web page shows.</p>
+        <div id="adminUserList"></div>
+      </div>
+
+      <div class="card">
+        <h2>🔑 Change password</h2>
+        <form id="pwForm">
+          <div class="row">
+            <div style="flex:1;min-width:160px"><label for="pwCur">Current</label><input type="password" id="pwCur" autocomplete="current-password" /></div>
+            <div style="flex:1;min-width:160px"><label for="pwNew">New</label><input type="password" id="pwNew" autocomplete="new-password" /></div>
+            <button class="btn" type="submit" style="align-self:flex-end">CHANGE</button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </main>
+
+  <div class="toasts" id="toasts"></div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+  function toast(m, err) { var d = document.createElement('div'); d.className = 'toast' + (err ? ' error' : ''); d.textContent = m; $('toasts').appendChild(d); setTimeout(function(){ d.remove(); }, 4000); }
+
+  function api(path, opts) {
+    opts = opts || {};
+    return fetch(path, {
+      method: opts.method || 'GET',
+      headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+        return j;
+      });
+    });
+  }
+
+  function nameOf(u) {
+    if (u.username) return '@' + u.username;
+    if (u.firstName) return u.firstName;
+    return 'chat ' + u.chatId;
+  }
+
+  function render(state) {
+    // database status
+    var dbInfo = state.db || {};
+    $('mongoUri').value = dbInfo.uri || '';
+    var ds = $('dbStatus');
+    if (dbInfo.driver === 'mongo' && dbInfo.connected) {
+      ds.innerHTML = '<span class="tag on">cloud database connected</span>&nbsp; Your data lives in MongoDB. Updating the app never touches it.';
+    } else if (dbInfo.uri) {
+      ds.innerHTML = '<span class="tag">not connected</span>&nbsp; ' + esc(dbInfo.error || 'Last connection failed') + ' — using local files for now.';
+    } else {
+      ds.innerHTML = 'Not connected — data is currently in local files (<span class="mono">' + esc(state.dataDir || '') + '</span>). Paste a connection string above to move it to the cloud.';
+    }
+
+    // telegram bot link (for sharing / the 🐾 button)
+    var def = (state.bots || []).find(function (b) { return b.isDefault; }) || (state.bots || [])[0];
+    var blr = $('adminBotLinkRow');
+    if (def && def.link) {
+      blr.innerHTML = 'Share link (this is what the 🐾 GET THE MEOW button opens): <a class="link" href="' + esc(def.link) + '" target="_blank" rel="noopener">' + esc(def.link) + '</a>';
+    } else {
+      blr.innerHTML = 'No bot yet — add one above. Then this link powers the 🐾 GET THE MEOW button.';
+    }
+
+    // bots
+    var bl = $('botList');
+    if (!state.bots.length) {
+      bl.innerHTML = '<div class="empty">No bots yet — add your first one above.</div>';
+    } else {
+      bl.innerHTML = '<table><thead><tr><th>Bot</th><th>Token</th><th>Link</th><th></th></tr></thead><tbody>' +
+        state.bots.map(function (b) {
+          return '<tr>' +
+            '<td><b>' + esc(b.username || 'unknown') + '</b>' + (b.isDefault ? ' <span class="tag on">default</span>' : '') + '</td>' +
+            '<td class="mono">' + esc(b.tokenMasked) + '</td>' +
+            '<td>' + (b.link ? '<a class="link" href="' + esc(b.link) + '" target="_blank" rel="noopener">t.me/' + esc(b.username) + '</a>' : '<span class="muted">—</span>') + '</td>' +
+            '<td style="white-space:nowrap">' +
+              (b.isDefault ? '' : '<button class="btn small ghost" data-act="default" data-id="' + esc(b.id) + '">make default</button> ') +
+              '<button class="btn small ghost" data-act="remove" data-id="' + esc(b.id) + '">remove</button>' +
+            '</td>' +
+          '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    // users
+    var ul = $('adminUserList');
+    if (!state.users.length) {
+      ul.innerHTML = '<div class="empty">Nobody enrolled yet. Share a bot link — people tap Start and appear here.</div>';
+    } else {
+      ul.innerHTML = '<table><thead><tr><th>Name</th><th>Chat id</th><th>Joined</th><th></th></tr></thead><tbody>' +
+        state.users.map(function (u) {
+          var isOwner = String(u.chatId) === String(state.ownerChatId);
+          var bot = (state.bots || []).find(function (b) { return b.id === u.botId; });
+          return '<tr>' +
+            '<td><b>' + esc(nameOf(u)) + '</b>' + (isOwner ? ' <span class="tag on">you</span>' : '') + (bot ? ' <span class="muted">via @' + esc(bot.username || 'bot') + '</span>' : '') + '</td>' +
+            '<td class="mono">' + esc(String(u.chatId)) + '</td>' +
+            '<td class="mono">' + esc(String(u.joinedAt || '').slice(0, 10)) + '</td>' +
+            '<td style="white-space:nowrap">' +
+              (isOwner ? '' : '<button class="btn small ghost" data-act="owner" data-id="' + esc(String(u.chatId)) + '">set as me</button> ') +
+              '<button class="btn small ghost" data-act="removeUser" data-id="' + esc(String(u.chatId)) + '">remove</button>' +
+            '</td>' +
+          '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+  }
+
+  function showPanel() { $('loginView').hidden = true; $('panel').hidden = false; $('logoutBtn').hidden = false; }
+  function showLogin() { $('loginView').hidden = false; $('panel').hidden = true; $('logoutBtn').hidden = true; }
+
+  function loadEmail() {
+    return api('/api/config').then(function (cfg) {
+      var e = cfg.email || {};
+      $('emHost').value = e.host || '';
+      $('emPort').value = e.port || 587;
+      $('emFrom').value = e.from || '';
+      $('emTo').value = e.to || '';
+      $('emUser').value = e.user || '';
+      $('emPass').value = e.pass || '';
+    }).catch(function () {});
+  }
+
+  function load() {
+    api('/api/admin/state').then(function (s) { render(s); showPanel(); loadEmail(); }).catch(function () { showLogin(); });
+  }
+
+  $('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    api('/api/admin/login', { method: 'POST', body: { password: $('loginPass').value } })
+      .then(function () { $('loginPass').value = ''; $('loginErr').textContent = ''; load(); })
+      .catch(function (err) { $('loginErr').textContent = err.message; });
+  });
+
+  $('logoutBtn').addEventListener('click', function () {
+    api('/api/admin/logout', { method: 'POST' }).then(showLogin).catch(showLogin);
+  });
+
+  $('saveMongo').addEventListener('click', function () {
+    api('/api/admin/mongo', { method: 'POST', body: { uri: $('mongoUri').value.trim() } })
+      .then(function () { toast('Database connected — your data is in the cloud now'); load(); })
+      .catch(function (err) { toast(err.message, true); });
+  });
+
+  $('addBotForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    api('/api/admin/bots', { method: 'POST', body: { token: $('botToken').value.trim() } })
+      .then(function () { $('botToken').value = ''; toast('Bot added'); load(); })
+      .catch(function (err) { toast(err.message, true); });
+  });
+
+  $('pwForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    api('/api/admin/password', { method: 'POST', body: { current: $('pwCur').value, next: $('pwNew').value } })
+      .then(function () { $('pwCur').value = ''; $('pwNew').value = ''; toast('Password changed'); })
+      .catch(function (err) { toast(err.message, true); });
+  });
+
+  $('saveEmail').addEventListener('click', function () {
+    var body = { email: {
+      host: $('emHost').value.trim() || 'smtp.gmail.com',
+      port: Number($('emPort').value) || 587,
+      from: $('emFrom').value.trim(),
+      to: $('emTo').value.trim(),
+      user: $('emUser').value.trim(),
+      pass: $('emPass').value
+    }};
+    api('/api/config', { method: 'POST', body: body })
+      .then(function () { toast('Email settings saved'); })
+      .catch(function (err) { toast(err.message, true); });
+  });
+
+  $('testTelegram').addEventListener('click', function () {
+    api('/api/test/telegram', { method: 'POST', body: { text: 'Test from MEOW admin' } })
+      .then(function (r) { toast(r.message); })
+      .catch(function (err) { toast(err.message, true); });
+  });
+
+  $('testEmail').addEventListener('click', function () {
+    api('/api/test/email', { method: 'POST', body: { text: 'Test from MEOW admin' } })
+      .then(function (r) { toast(r.message); })
+      .catch(function (err) { toast(err.message, true); });
+  });
+
+  // table actions (delegated)
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var act = b.dataset.act, id = b.dataset.id;
+    if (act === 'remove') {
+      api('/api/admin/bots/' + encodeURIComponent(id), { method: 'DELETE' }).then(function(){ toast('Bot removed'); load(); }).catch(function(err){ toast(err.message,true); });
+    } else if (act === 'default') {
+      api('/api/admin/bots/' + encodeURIComponent(id) + '/default', { method: 'POST' }).then(function(){ load(); }).catch(function(err){ toast(err.message,true); });
+    } else if (act === 'owner') {
+      api('/api/admin/users/' + encodeURIComponent(id) + '/owner', { method: 'POST' }).then(function(){ toast('Set as me'); load(); }).catch(function(err){ toast(err.message,true); });
+    } else if (act === 'removeUser') {
+      api('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' }).then(function(){ toast('User removed'); load(); }).catch(function(err){ toast(err.message,true); });
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

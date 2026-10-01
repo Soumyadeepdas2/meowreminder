@@ -1,0 +1,16 @@
+{
+  "name": "reminder-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal reminder agent — schedule reminders in plain English, get notified on Telegram/Email.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "chrono-node": "^2.7.8",
+    "express": "^4.19.2",
+    "mongodb": "^6.8.0",
+    "nodemailer": "^6.9.13"
+  }
+}
