@@ -767,6 +767,9 @@ code {
 
 /* ---- footer: meet the maker ---- */
 .meet-btn { margin-left: 10px; }
+/* footer links are gold underlined text (.colophon a) — that rule outranks .btn,
+   which would make the button gold-on-gold and invisible until hover. Pin it here. */
+.colophon a.meet-btn { color: var(--on-gold); text-decoration: none; }
 @media (max-width: 640px) {
   .meet-btn { margin: 10px 0 0; }
 }
