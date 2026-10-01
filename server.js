@@ -19,6 +19,27 @@ const telegramPoller = require('./telegram-poller');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Wrap async handlers so a rejected promise becomes a 500 response instead of
+// crashing the whole process (Express 4 does not catch throws inside async
+// handlers, and an unhandled rejection would take the site down with it).
+function ah(fn) {
+  return (req, res) => {
+    Promise.resolve(fn(req, res)).catch((err) => {
+      console.error('[meow] request handler error:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Something went wrong on my side — try again.' });
+    });
+  };
+}
+
+// Last line of defence: if any error still slips past every handler above,
+// log it loudly but keep the process (and the site) alive rather than dying.
+process.on('uncaughtException', (err) => {
+  console.error('[meow] uncaught exception (process kept alive):', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[meow] unhandled rejection (process kept alive):', err);
+});
+
 // ---- admin sessions (in-memory; re-login after a server restart) -------
 const sessions = new Map(); // sid -> { expires }
 const ADMIN_COOKIE = 'meow_admin';
@@ -101,6 +122,11 @@ app.get('/admin', (req, res) => {
 // Private by design: only "you" (this browser's identity) — never other
 // people's names or reminders. Bot tokens are never included, only the
 // public @username needed for the enroll link.
+// Health endpoint — probed by the container's HEALTHCHECK and uptime checks.
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true, uptime: Math.round(process.uptime()), now: new Date().toISOString() });
+});
+
 app.get('/api/status', (req, res) => {
   const cfg = store.getConfig();
   const bots = (cfg.telegram.bots || []).map((b) => ({
@@ -141,7 +167,7 @@ app.get('/api/tasks', (req, res) => {
 //   { title, dueAt }            → exact: title kept VERBATIM, fire at this exact time
 //   { title, recurring, time }  → repeat: title VERBATIM, fires again on the
 //                                 schedule (from the 🔁 REPEAT panel)
-app.post('/api/tasks', async (req, res) => {
+app.post('/api/tasks', ah(async (req, res) => {
   if (!req.meowUser) {
     return res.status(401).json({ error: 'Link your meow first — press 🐾 GET THE MEOW and tap Start in Telegram.' });
   }
@@ -231,10 +257,10 @@ app.post('/api/tasks', async (req, res) => {
   }
 
   res.status(400).json({ error: 'Empty reminder.' });
-});
+}));
 
 // Mark done — own tasks only.
-app.post('/api/tasks/:id/done', async (req, res) => {
+app.post('/api/tasks/:id/done', ah(async (req, res) => {
   const t = ownedTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   if (t.recurring && t.time) {
@@ -250,10 +276,10 @@ app.post('/api/tasks/:id/done', async (req, res) => {
   }
   await store.saveTasks(store.getTasks());
   res.json(t);
-});
+}));
 
 // Snooze — own tasks only.
-app.post('/api/tasks/:id/snooze', async (req, res) => {
+app.post('/api/tasks/:id/snooze', ah(async (req, res) => {
   const minutes = Number(req.body.minutes) || 15;
   const t = ownedTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -269,15 +295,15 @@ app.post('/api/tasks/:id/snooze', async (req, res) => {
     ownerChatId: req.meowUser ? String(req.meowUser.chatId) : null
   });
   res.json(t);
-});
+}));
 
 // Delete — own tasks only.
-app.delete('/api/tasks/:id', async (req, res) => {
+app.delete('/api/tasks/:id', ah(async (req, res) => {
   const t = ownedTask(req, req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   await store.saveTasks(store.getTasks().filter((x) => x.id !== req.params.id));
   res.json({ ok: true });
-});
+}));
 
 // Recent activity feed — only this browser's own events.
 app.get('/api/activity', (req, res) => {
@@ -298,7 +324,7 @@ app.get('/api/activity', (req, res) => {
 // from now on, "me" in this browser is that person. Nobody else's browser is
 // affected, and no roster is ever exposed.
 
-app.post('/api/enroll', async (req, res) => {
+app.post('/api/enroll', ah(async (req, res) => {
   const cfg = store.getConfig();
   const bots = cfg.telegram.bots || [];
   const def = bots.find((b) => b.id === cfg.telegram.defaultBotId) || bots[0];
@@ -315,10 +341,10 @@ app.post('/api/enroll', async (req, res) => {
   });
   res.setHeader('Set-Cookie', HANDOFF_COOKIE + '=' + code + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + Math.floor(store.HANDOFF_TTL_MS / 1000));
   res.json({ code, botLink: 'https://t.me/' + def.username + '?start=' + code });
-});
+}));
 
 // Polled by the browser while waiting; issues the identity cookie on match.
-app.get('/api/enroll/status', async (req, res) => {
+app.get('/api/enroll/status', ah(async (req, res) => {
   const code = getCookie(req, HANDOFF_COOKIE);
   if (!code) return res.json({ state: 'none' });
   const h = store.findHandoff(code);
@@ -332,7 +358,7 @@ app.get('/api/enroll/status', async (req, res) => {
   res.append('Set-Cookie', MEOW_COOKIE + '=' + store.signUserToken(h.chatId) + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + IDENTITY_MAX_AGE);
   res.append('Set-Cookie', HANDOFF_COOKIE + '=; Path=/; Max-Age=0');
   res.json({ state: 'linked', you: u ? publicUser(u) : null });
-});
+}));
 
 // Unlink this browser (also "switch account" — enroll again to re-link).
 app.post('/api/logout', (req, res) => {
@@ -348,7 +374,7 @@ app.get('/api/config', requireAdmin, (req, res) => {
   const cfg = store.getConfig();
   res.json({ timezone: cfg.timezone, email: cfg.email });
 });
-app.post('/api/config', requireAdmin, async (req, res) => {
+app.post('/api/config', requireAdmin, ah(async (req, res) => {
   const incoming = req.body || {};
   const current = store.getConfig();
   const next = {
@@ -358,7 +384,7 @@ app.post('/api/config', requireAdmin, async (req, res) => {
   };
   await store.saveConfig(next);
   res.json({ timezone: next.timezone, email: next.email });
-});
+}));
 
 // ---- ledger (admin-curated notice board on the public page) ------------
 // Read is public — it's the page's notice board. The write paths live under
@@ -369,7 +395,7 @@ app.get('/api/ledger', (req, res) => {
   res.json(store.getLedger().slice().reverse());
 });
 
-app.post('/api/admin/ledger', requireAdmin, async (req, res) => {
+app.post('/api/admin/ledger', requireAdmin, ah(async (req, res) => {
   const text = String((req.body || {}).text || '').trim();
   if (!text) return res.status(400).json({ error: 'Write something for the ledger first.' });
   if (text.length > 300) return res.status(400).json({ error: 'Keep ledger entries under 300 characters.' });
@@ -382,9 +408,9 @@ app.post('/api/admin/ledger', requireAdmin, async (req, res) => {
   entries.push(entry);
   await store.saveLedger(entries);
   res.status(201).json(entry);
-});
+}));
 
-app.put('/api/admin/ledger/:id', requireAdmin, async (req, res) => {
+app.put('/api/admin/ledger/:id', requireAdmin, ah(async (req, res) => {
   const text = String((req.body || {}).text || '').trim();
   if (!text) return res.status(400).json({ error: 'Write something for the ledger first.' });
   if (text.length > 300) return res.status(400).json({ error: 'Keep ledger entries under 300 characters.' });
@@ -394,16 +420,16 @@ app.put('/api/admin/ledger/:id', requireAdmin, async (req, res) => {
   e.text = text;
   await store.saveLedger(entries);
   res.json(e);
-});
+}));
 
-app.delete('/api/admin/ledger/:id', requireAdmin, async (req, res) => {
+app.delete('/api/admin/ledger/:id', requireAdmin, ah(async (req, res) => {
   const entries = store.getLedger();
   const i = entries.findIndex((x) => x.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'Not found' });
   const [removed] = entries.splice(i, 1);
   await store.saveLedger(entries);
   res.json(removed);
-});
+}));
 
 // ---- enrolled users (the fixed-bot roster) -----------------------------
 app.get('/api/users', (req, res) => res.json(store.getUsers()));
@@ -449,7 +475,7 @@ app.get('/api/admin/state', requireAdmin, (req, res) => {
 });
 
 // Add a bot by token (auto-discovers its @username).
-app.post('/api/admin/bots', requireAdmin, async (req, res) => {
+app.post('/api/admin/bots', requireAdmin, ah(async (req, res) => {
   const token = String((req.body || {}).token || '').trim();
   if (!token) return res.status(400).json({ error: 'Paste a bot token from @BotFather.' });
   const cfg = store.getConfig();
@@ -469,35 +495,35 @@ app.post('/api/admin/bots', requireAdmin, async (req, res) => {
   if (!cfg.telegram.defaultBotId) cfg.telegram.defaultBotId = bot.id;
   await store.saveConfig(cfg);
   res.status(201).json({ id: bot.id, username, link: username ? 'https://t.me/' + username : null });
-});
+}));
 
 // Remove a bot.
-app.delete('/api/admin/bots/:id', requireAdmin, async (req, res) => {
+app.delete('/api/admin/bots/:id', requireAdmin, ah(async (req, res) => {
   const cfg = store.getConfig();
   cfg.telegram.bots = (cfg.telegram.bots || []).filter((b) => b.id !== req.params.id);
   if (cfg.telegram.defaultBotId === req.params.id) cfg.telegram.defaultBotId = (cfg.telegram.bots[0] || {}).id || null;
   await store.saveConfig(cfg);
   res.json({ ok: true });
-});
+}));
 
 // Set the default bot (used for "me" and new reminders).
-app.post('/api/admin/bots/:id/default', requireAdmin, async (req, res) => {
+app.post('/api/admin/bots/:id/default', requireAdmin, ah(async (req, res) => {
   const cfg = store.getConfig();
   if (!(cfg.telegram.bots || []).some((b) => b.id === req.params.id)) return res.status(404).json({ error: 'Bot not found.' });
   cfg.telegram.defaultBotId = req.params.id;
   await store.saveConfig(cfg);
   res.json({ ok: true });
-});
+}));
 
 // Remove an enrolled user (admin).
-app.delete('/api/admin/users/:chatId', requireAdmin, async (req, res) => {
+app.delete('/api/admin/users/:chatId', requireAdmin, ah(async (req, res) => {
   const id = String(req.params.chatId);
   await store.saveUsers(store.getUsers().filter((u) => String(u.chatId) !== id));
   res.json({ ok: true });
-});
+}));
 
 // Change the admin password.
-app.post('/api/admin/password', requireAdmin, async (req, res) => {
+app.post('/api/admin/password', requireAdmin, ah(async (req, res) => {
   const { current, next } = req.body || {};
   const cfg = store.getConfig();
   if (store.hashPassword(String(current || '')) !== cfg.admin.passwordHash) {
@@ -507,28 +533,28 @@ app.post('/api/admin/password', requireAdmin, async (req, res) => {
   cfg.admin.passwordHash = store.hashPassword(String(next));
   await store.saveConfig(cfg);
   res.json({ ok: true });
-});
+}));
 
 // Connect (a new) database. Admin only.
-app.post('/api/admin/mongo', requireAdmin, async (req, res) => {
+app.post('/api/admin/mongo', requireAdmin, ah(async (req, res) => {
   try {
     const info = await store.setDatabase(String((req.body || {}).uri || ''));
     res.json({ ok: true, db: info });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
-});
+}));
 
 // Send a test notification through one channel (admin only — otherwise anyone
 // could spam test messages to Telegram/email).
-app.post('/api/test/:channel', requireAdmin, async (req, res) => {
+app.post('/api/test/:channel', requireAdmin, ah(async (req, res) => {
   try {
     const name = await channels.test(req.params.channel, req.body.text);
     res.json({ ok: true, message: 'Test sent via ' + name });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
-});
+}));
 
 // ---- start -------------------------------------------------------------
 // Boot the data layer (loads local files, then connects the database if one

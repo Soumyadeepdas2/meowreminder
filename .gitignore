@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Local data & state 
+# Local data & state
 data/
 .meow/
 *.json.bak
